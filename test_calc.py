@@ -71,7 +71,7 @@ if __name__ == "__main__":
     ])
     
     dt = 0.1
-    total_steps = 10
+    total_steps = 5
     
     # 軌跡保存用のリスト
     history = [positions.copy()]
