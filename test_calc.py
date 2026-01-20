@@ -23,29 +23,29 @@ def calculate_acceleration(positions, masses, G=1.0):
                 
     return acceleration
 
-def symplectic_step(positions, velocities, masses, dt, G=1.0):
+def rk4_step(positions, velocities, masses, dt, G=1.0):
     """
-    Velocity Verlet法（2次シンプレクティック積分）を用いて、dt秒後の位置と速度を計算します。
-    positions: (N, 3) の配列
-    velocities: (N, 3) の配列
-    masses: (N,) の配列
-    dt: タイムステップ (秒)
-    G: 万有引力定数
+    4次ルンゲ＝クッタ法(RK4)を用いて、dt秒後の位置と速度を計算します。
     """
-    # 1. 現在の加速度を計算
-    acc_t = calculate_acceleration(positions, masses, G)
+    def compute_derivatives(p, v):
+        a = calculate_acceleration(p, masses, G)
+        return v, a
+
+    # k1
+    v1, a1 = compute_derivatives(positions, velocities)
     
-    # 2. 速度を半ステップ進める: v(t + dt/2) = v(t) + a(t) * dt/2
-    velocities_half = velocities + acc_t * (dt / 2.0)
+    # k2
+    v2, a2 = compute_derivatives(positions + v1 * dt / 2, velocities + a1 * dt / 2)
     
-    # 3. 位置を全ステップ進める: q(t + dt) = q(t) + v(t + dt/2) * dt
-    next_positions = positions + velocities_half * dt
+    # k3
+    v3, a3 = compute_derivatives(positions + v2 * dt / 2, velocities + a2 * dt / 2)
     
-    # 4. 新しい位置での加速度を計算: a(t + dt)
-    acc_next = calculate_acceleration(next_positions, masses, G)
+    # k4
+    v4, a4 = compute_derivatives(positions + v3 * dt, velocities + a3 * dt)
     
-    # 5. 速度をさらに半ステップ進める: v(t + dt) = v(t + dt/2) + a(t + dt) * dt/2
-    next_velocities = velocities_half + acc_next * (dt / 2.0)
+    # 次のステップを計算
+    next_positions = positions + (dt / 6.0) * (v1 + 2*v2 + 2*v3 + v4)
+    next_velocities = velocities + (dt / 6.0) * (a1 + 2*a2 + 2*a3 + a4)
     
     return next_positions, next_velocities
 
@@ -79,7 +79,7 @@ if __name__ == "__main__":
     # シミュレーション実行
     curr_p, curr_v = positions, velocities
     for _ in range(total_steps - 1):
-        curr_p, curr_v = symplectic_step(curr_p, curr_v, masses, dt)
+        curr_p, curr_v = rk4_step(curr_p, curr_v, masses, dt)
         history.append(curr_p.copy())
     
     history = np.array(history) # (steps, bodies, coordinates)
@@ -93,7 +93,7 @@ if __name__ == "__main__":
         # 軌跡（線）ではなく、点を描画
         plt.scatter(history[:, i, 0], history[:, i, 1], color=colors[i], label=labels[i], s=30)
 
-    plt.title("Three-Body Problem Trajectories (XY Plane)")
+    plt.title("Three-Body Problem (RK4, 10 Points per Star)")
     plt.xlabel("X")
     plt.ylabel("Y")
     plt.legend()
