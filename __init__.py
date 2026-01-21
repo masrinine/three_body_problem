@@ -5,7 +5,7 @@ Calculate three-body-problem in Blender.
 
 bl_info = {
     "name": "Three Body Problem",
-    "author": "Your Name",
+    "author": "masrinine",
     "version": (1, 0, 0),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Three Body",
@@ -14,14 +14,19 @@ bl_info = {
 }
 
 
+from . import properties
+from . import panels
+
 def register():
     """Register addon classes and properties."""
-    pass
+    properties.register()
+    panels.register()
 
 
 def unregister():
     """Unregister addon classes and properties."""
-    pass
+    panels.unregister()
+    properties.unregister()
 
 
 if __name__ == "__main__":
