@@ -16,16 +16,22 @@ bl_info = {
 
 from . import properties
 from . import panels
+from . import operators
+from . import visualization
 
 def register():
     """Register addon classes and properties."""
     properties.register()
+    operators.register()
+    visualization.register()
     panels.register()
 
 
 def unregister():
     """Unregister addon classes and properties."""
     panels.unregister()
+    visualization.unregister()
+    operators.unregister()
     properties.unregister()
 
 

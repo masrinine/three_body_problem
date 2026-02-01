@@ -98,7 +98,7 @@ def rk45_adaptive_step(positions, velocities, masses, dt_frame, G=1.0, tol=1e-6)
         if h <= 1e-5 and t_spent < dt_frame:
             # 強制的に進める（デッドロック防止）
             h = dt_frame - t_spent
-            curr_p, curr_v = rk4_step(curr_p, curr_v, masses, h, G)
-            break
+            
+    return curr_p, curr_v
 
     return curr_p, curr_v
