@@ -50,6 +50,12 @@ class THREEBODY_OT_bake_simulation(bpy.types.Operator):
         props = context.scene.three_body_props
         scene = context.scene
         
+        # Sync current object locations to initial_location before calculation
+        for i in range(1, 4):
+            body_prop = getattr(props, f"body{i}")
+            if body_prop.obj:
+                body_prop.initial_location = body_prop.obj.location
+
         # 1. Prepare data
         bodies = []
         for i in range(1, 4):

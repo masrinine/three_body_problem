@@ -18,18 +18,21 @@ from . import properties
 from . import panels
 from . import operators
 from . import visualization
+from . import handlers
 
 def register():
     """Register addon classes and properties."""
     properties.register()
     operators.register()
     visualization.register()
+    handlers.register()
     panels.register()
 
 
 def unregister():
     """Unregister addon classes and properties."""
     panels.unregister()
+    handlers.unregister()
     visualization.unregister()
     operators.unregister()
     properties.unregister()

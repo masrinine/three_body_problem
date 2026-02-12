@@ -98,7 +98,7 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
     cache_path: bpy.props.StringProperty(
         name="Cache Path",
         description="Folder to store simulation cache",
-        default="//cache/",
+        default="/tmp/",
         subtype='DIR_PATH'
     )
 
