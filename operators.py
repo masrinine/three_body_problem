@@ -68,7 +68,9 @@ class THREEBODY_OT_bake_simulation(bpy.types.Operator):
         masses = np.array([b.mass for b in bodies])
         positions = np.array([b.initial_location for b in bodies])
         velocities = np.array([b.velocity for b in bodies])
-        G = props.gravitational_constant
+        # Use G * Gravity Strength as the effective G
+        G = props.gravitational_constant * props.gravity_strength
+        softening = props.softening
         
         # Determine time step
         fps = scene.render.fps if props.use_scene_fps else props.fps_override
@@ -89,13 +91,11 @@ class THREEBODY_OT_bake_simulation(bpy.types.Operator):
             
             # Progress simulation one frame step
             if props.simulation_model == 'RK4':
-                curr_p, curr_v = algo.rk4_step(curr_p, curr_v, masses, dt_frame, G)
+                curr_p, curr_v = algo.rk4_step(curr_p, curr_v, masses, dt_frame, G, softening)
             elif props.simulation_model == 'VERLET':
-                curr_p, curr_v = algo.velocity_verlet_step(curr_p, curr_v, masses, dt_frame, G)
+                curr_p, curr_v = algo.velocity_verlet_step(curr_p, curr_v, masses, dt_frame, G, softening)
             elif props.simulation_model == 'RK45':
-                # Custom adaptive logic inside algo.py would need to return result
-                # For now let's ensure algo.py rk45 returns values
-                curr_p, curr_v = algo.rk45_adaptive_step(curr_p, curr_v, masses, dt_frame, G)
+                curr_p, curr_v = algo.rk45_adaptive_step(curr_p, curr_v, masses, dt_frame, G, softening)
 
         self.report({'INFO'}, f"Bake completed from frame {start_f} to {end_f}")
         return {'FINISHED'}

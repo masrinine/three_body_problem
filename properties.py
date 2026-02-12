@@ -81,7 +81,21 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
     gravitational_constant: bpy.props.FloatProperty(
         name="Gravitational Constant (G)",
         description="Newton's gravitational constant",
-        default=1.0,
+        default=10.0,
+        min=0.0
+    )
+
+    gravity_strength: bpy.props.FloatProperty(
+        name="Gravity Strength",
+        description="Global multiplier for the gravitational force to make interactions more visible",
+        default=10.0,
+        min=0.0
+    )
+
+    softening: bpy.props.FloatProperty(
+        name="Softening",
+        description="Prevents infinite force at zero distance and smooths close encounters",
+        default=0.1,
         min=0.0
     )
 

@@ -16,6 +16,8 @@ class VIEW3D_PT_three_body_problem(bpy.types.Panel):
         layout.prop(props, "simulation_model")
         layout.prop(props, "time_scale")
         layout.prop(props, "gravitational_constant")
+        layout.prop(props, "gravity_strength")
+        layout.prop(props, "softening")
         layout.prop(props, "show_velocity_vectors")
         layout.separator()
 

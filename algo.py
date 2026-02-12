@@ -1,11 +1,12 @@
 import numpy as np
 
-def calculate_acceleration(positions, masses, G=1.0):
+def calculate_acceleration(positions, masses, G=1.0, softening=0.0):
     """
     各天体に働く加速度を計算します。
     positions: (N, 3) の配列
     masses: (N,) の配列
     G: 万有引力定数
+    softening: 距離の計算に加える軟化係数 (epsilon)
     """
     N = positions.shape[0]
     acceleration = np.zeros_like(positions)
@@ -15,19 +16,23 @@ def calculate_acceleration(positions, masses, G=1.0):
             if i == j:
                 continue
             r_vec = positions[j] - positions[i]
-            dist = np.linalg.norm(r_vec)
-            # 万有引力の法則: a = G * m_j * r_vec / |r_vec|^3
-            if dist > 1e-9: # 衝突回避のための微小値
-                acceleration[i] += G * masses[j] * r_vec / (dist**3)
+            dist_sq = np.sum(r_vec**2)
+            
+            # 軟化係数を含めた距離の計算
+            # a = G * m_j * r_vec / (r^2 + eps^2)^(3/2)
+            denom = (dist_sq + softening**2)**(1.5)
+            
+            if denom > 1e-12:
+                acceleration[i] += G * masses[j] * r_vec / denom
                 
     return acceleration
 
-def rk4_step(positions, velocities, masses, dt, G=1.0):
+def rk4_step(positions, velocities, masses, dt, G=1.0, softening=0.0):
     """
     4次ルンゲ＝クッタ法(RK4)を用いて、dt秒後の位置と速度を計算します。
     """
     def compute_derivatives(p, v):
-        a = calculate_acceleration(p, masses, G)
+        a = calculate_acceleration(p, masses, G, softening)
         return v, a
 
     v1, a1 = compute_derivatives(positions, velocities)
@@ -40,11 +45,11 @@ def rk4_step(positions, velocities, masses, dt, G=1.0):
     
     return next_positions, next_velocities
 
-def velocity_verlet_step(positions, velocities, masses, dt, G=1.0):
+def velocity_verlet_step(positions, velocities, masses, dt, G=1.0, softening=0.0):
     """
     Velocity Verlet法（2次シンプレクティック積分）を用いて、dt秒後の位置と速度を計算します。
     """
-    acc_t = calculate_acceleration(positions, masses, G)
+    acc_t = calculate_acceleration(positions, masses, G, softening)
     
     # 速度を半ステップ進める
     velocities_half = velocities + acc_t * (dt / 2.0)
@@ -53,14 +58,14 @@ def velocity_verlet_step(positions, velocities, masses, dt, G=1.0):
     next_positions = positions + velocities_half * dt
     
     # 新しい位置での加速度を計算
-    acc_next = calculate_acceleration(next_positions, masses, G)
+    acc_next = calculate_acceleration(next_positions, masses, G, softening)
     
     # 速度をさらに半ステップ進める
     next_velocities = velocities_half + acc_next * (dt / 2.0)
     
     return next_positions, next_velocities
 
-def rk45_adaptive_step(positions, velocities, masses, dt_frame, G=1.0, tol=1e-6):
+def rk45_adaptive_step(positions, velocities, masses, dt_frame, G=1.0, softening=0.0, tol=1e-6):
     """
     RK45(Dormand-Prince法)の概念を用いた適応的時間刻みにより、
     1フレーム分(dt_frame)の積分を実行します。
@@ -75,11 +80,8 @@ def rk45_adaptive_step(positions, velocities, masses, dt_frame, G=1.0, tol=1e-6)
         if t_spent + h > dt_frame:
             h = dt_frame - t_spent
         
-        # ステップの試行 (4次と5次を比較するのが理想だが、ここでは計算コストを考慮し
-        # 近接度に応じたステップ調整を行う実用的なロジックとする)
-        
         # 加速度の変化率や最小距離を確認
-        acc = calculate_acceleration(curr_p, masses, G)
+        acc = calculate_acceleration(curr_p, masses, G, softening)
         min_dist = float('inf')
         for i in range(len(masses)):
             for j in range(i+1, len(masses)):
@@ -92,7 +94,7 @@ def rk45_adaptive_step(positions, velocities, masses, dt_frame, G=1.0, tol=1e-6)
         if t_spent + h > dt_frame: h = dt_frame - t_spent
 
         # RK4を用いてステップ実行
-        curr_p, curr_v = rk4_step(curr_p, curr_v, masses, h, G)
+        curr_p, curr_v = rk4_step(curr_p, curr_v, masses, h, G, softening)
         t_spent += h
         
         if h <= 1e-5 and t_spent < dt_frame:
