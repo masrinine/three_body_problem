@@ -21,25 +21,27 @@ class BodyProperties(bpy.types.PropertyGroup):
         name="Initial Location",
         description="Initial location of the body",
         subtype='TRANSLATION',
-        precision=3
+        precision=3,
+        default=(0.0, 0.0, 0.0)
     )
     velocity: bpy.props.FloatVectorProperty(
         name="Initial Velocity",
         description="Initial velocity of the body",
         subtype='XYZ',
-        precision=3
+        precision=3,
+        default=(0.0, 0.0, 0.0)
     )
 
 class ThreeBodyProperties(bpy.types.PropertyGroup):
     simulation_model: bpy.props.EnumProperty(
-        name="Simulation Model",
-        description="Choose the numerical integration method",
+        name="Preset Model",
+        description="Choose the preset three-body system",
         items=[
-            ('RK4', "RK4 (Runge-Kutta 4th)", "Classic 4th order Runge-Kutta"),
-            ('VERLET', "Velocity Verlet", "2nd order Symplectic (Verlet)"),
-            ('RK45', "RK45 (Adaptive)", "Adaptive RK45 for high precision"),
+            ('FIGURE_8', "Figure-Eight (Stable Orbit)", "Three equal masses in a figure-eight orbit"),
+            ('LAGRANGE_L4', "Lagrangian Points (Stable)", "Small mass at L4 of a two-body system"),
+            ('PYTHAGOREAN', "Pythagorean (Chaotic)", "Classic restricted problem (Burrau's problem)"),
         ],
-        default='RK4'
+        default='FIGURE_8'
     )
 
     body1: bpy.props.PointerProperty(type=BodyProperties)
@@ -55,7 +57,7 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
     frame_end: bpy.props.IntProperty(
         name="End Frame",
         description="Frame to end simulation",
-        default=250,
+        default=500,
         min=1
     )
 
@@ -81,21 +83,21 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
     gravitational_constant: bpy.props.FloatProperty(
         name="Gravitational Constant (G)",
         description="Newton's gravitational constant",
-        default=10.0,
+        default=1.0,
         min=0.0
     )
 
     gravity_strength: bpy.props.FloatProperty(
         name="Gravity Strength",
         description="Global multiplier for the gravitational force to make interactions more visible",
-        default=10.0,
+        default=5.0,
         min=0.0
     )
 
     softening: bpy.props.FloatProperty(
         name="Softening",
         description="Prevents infinite force at zero distance and smooths close encounters",
-        default=0.1,
+        default=0.02,
         min=0.0
     )
 

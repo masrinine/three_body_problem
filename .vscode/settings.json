@@ -1,5 +1,0 @@
-{
-    "python-envs.defaultEnvManager": "ms-python.python:venv",
-    "python-envs.pythonProjects": [],
-    "python.defaultInterpreterPath": "C:\\Program Files\\Blender Foundation\\Blender 5.0\\5.0\\python\\bin\\python.exe"
-}

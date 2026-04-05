@@ -49,7 +49,7 @@ def draw_velocity_callback(self, context):
     if not coords:
         return
 
-    shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
+    shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR' if bpy.app.version >= (4, 0, 0) else '3D_UNIFORM_COLOR')
     batch = batch_for_shader(shader, 'LINES', {"pos": coords}, indices=indices)
     
     shader.bind()
