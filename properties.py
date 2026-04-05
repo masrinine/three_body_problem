@@ -40,6 +40,9 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
             ('FIGURE_8', "Figure-Eight (Stable Orbit)", "Three equal masses in a figure-eight orbit"),
             ('LAGRANGE_L4', "Lagrangian Points (Stable)", "Small mass at L4 of a two-body system"),
             ('PYTHAGOREAN', "Pythagorean (Chaotic)", "Classic restricted problem (Burrau's problem)"),
+            ('DRAGON', "The Dragon (3D Loop)", "Complex 3D interweaving pattern"),
+            ('BUTTERFLY_3D', "Butterfly 3D (Hill's)", "Butterfly-type oscillation in 3D"),
+            ('YARN', "The Yarn (Chaos Sphere)", "Spherical 3D movement similar to a ball of yarn"),
         ],
         default='FIGURE_8'
     )
@@ -78,6 +81,13 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
         description="Simulation speed (1.0 is normal speed)",
         default=1.0,
         min=0.0
+    )
+
+    simulation_scale: bpy.props.FloatProperty(
+        name="Simulation Scale",
+        description="Physical scale multiplier for the simulation (default: 5.0)",
+        default=5.0,
+        min=0.001
     )
 
     gravitational_constant: bpy.props.FloatProperty(

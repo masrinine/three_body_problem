@@ -15,6 +15,7 @@ class VIEW3D_PT_three_body_problem(bpy.types.Panel):
         layout.label(text="Preset Selection", icon='PRESET')
         layout.prop(props, "simulation_model")
         layout.prop(props, "time_scale")
+        layout.prop(props, "simulation_scale")
         layout.separator()
 
         # Body selection

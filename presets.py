@@ -69,5 +69,61 @@ PRESETS = {
         G=1.0,
         softening=0.05, # Pythagorean problem has close encounters, softening required
         steps_per_frame=50 # High precision needed for chaotic changes
+    ),
+
+    'DRAGON': ThreeBodyPreset(
+        name="The Dragon (3D)",
+        masses=[1.0, 1.0, 1.0],
+        # Initial conditions inspired by Šuvakov & Dmitrašinović 3D periodic solutions
+        # Adjusted for visual 3D movement
+        positions=[
+            [1.0, 0.0, 0.0],
+            [-1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.5]
+        ],
+        velocities=[
+            [0.0, 0.8, 0.3],
+            [0.0, -0.8, 0.3],
+            [0.0, 0.0, -0.6]
+        ],
+        G=1.5,
+        softening=0.02,
+        steps_per_frame=40
+    ),
+
+    'BUTTERFLY_3D': ThreeBodyPreset(
+        name="Butterfly 3D (Hill's Type)",
+        masses=[10.0, 10.0, 1.0],
+        positions=[
+            [1.5, 0.0, 0.1],
+            [-1.5, 0.0, -0.1],
+            [0.0, 0.0, 0.0]
+        ],
+        velocities=[
+            [0.0, 1.2, 0.2],
+            [0.0, -1.2, -0.2],
+            [0.0, 0.0, 0.5]
+        ],
+        G=2.0,
+        softening=0.05,
+        steps_per_frame=30
+    ),
+
+    'YARN': ThreeBodyPreset(
+        name="The Yarn (Spherical 3D)",
+        masses=[1.0, 1.0, 1.0],
+        positions=[
+            [1.0, 1.0, 1.0],
+            [-1.0, -1.0, 1.0],
+            [0.0, 0.0, -1.0]
+        ],
+        velocities=[
+            [0.5, -0.5, 0.2],
+            [-0.5, 0.5, 0.2],
+            [0.0, 0.0, -0.4]
+        ],
+        G=1.2,
+        softening=0.03,
+        steps_per_frame=40
     )
 }

@@ -21,10 +21,22 @@ class THREEBODY_OT_bake_simulation(bpy.types.Operator):
             
         p = presets.PRESETS[preset_key]
         masses = p.masses
-        curr_p = p.positions.copy()
+        # Apply Simulation Scale to positions
+        curr_p = p.positions.copy() * props.simulation_scale
         curr_v = p.velocities.copy()
-        G = p.G
-        softening = p.softening
+        
+        # Note: In gravitational physics, if we scale distance R by 'S', 
+        # to keep the orbit the same shape, we'd need to adjust G or V.
+        # However, for visual purposes in Blender, we often just want
+        # the whole movement to be "bigger" in the viewport.
+        # To keep the curves identical but larger, we scale G appropriately:
+        # F = G*m1*m2/R^2. If R -> R*S, then F -> F/S^2.
+        # But we want the same acceleration 'a' relative to the new scale.
+        # If we want the same orbital period, a must scale with S (a -> a*S).
+        # So G must scale by S^3. G_scaled = G * S^3.
+        G = p.G * (props.simulation_scale ** 3)
+        
+        softening = p.softening * props.simulation_scale
         steps_per_frame = p.steps_per_frame
         
         # 2. Get Target Objects
