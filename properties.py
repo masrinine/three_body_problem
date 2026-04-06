@@ -43,6 +43,9 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
             ('DRAGON', "The Dragon (3D Loop)", "Complex 3D interweaving pattern"),
             ('BUTTERFLY_3D', "Butterfly 3D (Hill's)", "Butterfly-type oscillation in 3D"),
             ('YARN', "The Yarn (Chaos Sphere)", "Spherical 3D movement similar to a ball of yarn"),
+            ('CHAOTIC_3D_CLOVER', "Chaotic Clover 3D", "Interweaving 3D clover pattern"),
+            ('CHAOTIC_3D_DOUBLE_HEX', "Double Hex 3D", "Non-periodic hexagonal-like 3D orbit"),
+            ('PYTHAGOREAN_3D', "Pythagorean 3D", "Extreme chaos version of the Pythagorean problem"),
         ],
         default='FIGURE_8'
     )
@@ -83,6 +86,14 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
         min=0.0
     )
 
+    softening_multiplier: bpy.props.FloatProperty(
+        name="Softening Multiplier",
+        description="Increases 'softening' to prevent particles from flying away (0 = accuracy, high = stability)",
+        default=1.0,
+        min=0.0,
+        max=10.0
+    )
+
     simulation_scale: bpy.props.FloatProperty(
         name="Simulation Scale",
         description="Physical scale multiplier for the simulation (default: 5.0)",
@@ -95,6 +106,30 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
         description="Newton's gravitational constant",
         default=1.0,
         min=0.0
+    )
+
+    # Collision Settings
+    use_collision: bpy.props.BoolProperty(
+        name="Enable Collision",
+        description="Enable elastic collision between bodies",
+        default=False
+    )
+    auto_collision_radius: bpy.props.BoolProperty(
+        name="Auto Radius",
+        description="Calculate collision radius automatically from mesh size",
+        default=True
+    )
+    manual_collision_radius: bpy.props.FloatProperty(
+        name="Manual Radius",
+        description="Manual distance for collision detection",
+        default=0.5,
+        min=0.001
+    )
+    radius_offset: bpy.props.FloatProperty(
+        name="Radius Offset",
+        description="Fine-tuning for collision radius (Applied to both auto and manual)",
+        default=0.0,
+        precision=3
     )
 
     gravity_strength: bpy.props.FloatProperty(

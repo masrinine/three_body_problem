@@ -65,42 +65,92 @@ def velocity_verlet_step(positions, velocities, masses, dt, G=1.0, softening=0.0
     
     return next_positions, next_velocities
 
-def rk45_adaptive_step(positions, velocities, masses, dt_frame, G=1.0, softening=0.0, tol=1e-6):
+def handle_collisions(positions, velocities, masses, collision_radius):
     """
-    RK45(Dormand-Prince法)の概念を用いた適応的時間刻みにより、
-    1フレーム分(dt_frame)の積分を実行します。
+    天体同士の弾性衝突を処理します。
+    """
+    N = positions.shape[0]
+    new_v = velocities.copy()
+    
+    for i in range(N):
+        for j in range(i + 1, N):
+            r_vec = positions[j] - positions[i]
+            dist = np.linalg.norm(r_vec)
+            
+            if dist < collision_radius:
+                # 衝突軸
+                normal = r_vec / (dist + 1e-9)
+                # 相対速度
+                relative_v = new_v[j] - new_v[i]
+                # 衝突軸方向の速度成分
+                v_normal = np.dot(relative_v, normal)
+                
+                # 近づいている場合のみ反発させる
+                if v_normal < 0:
+                    # 弾性衝突の公式: v1_new = v1 - 2*m2/(m1+m2) * <v1-v2, p1-p2>/|p1-p2|^2 * (p1-p2)
+                    m_sum = masses[i] + masses[j]
+                    impulse = (2.0 * v_normal) / m_sum
+                    
+                    new_v[i] += impulse * masses[j] * normal
+                    new_v[j] -= impulse * masses[i] * normal
+                    
+    return new_v
+
+def rk45_adaptive_step(positions, velocities, masses, dt_frame, G=1.0, softening=0.0, collision_radius=0.0):
+    """
+    1フレーム分(dt_frame)の積分を実行するために、適応的時間刻みを用います。
+    collision_radius > 0 の場合、弾性衝突処理を行います。
     """
     t_spent = 0.0
     curr_p = positions.copy()
     curr_v = velocities.copy()
-    h = dt_frame / 4.0  # 初期時間刻み
     
-    # Dormand-Prince 5(4) 係数の一部を簡略化した適応ロジック
+    # 基本ステップサイズ（1フレームを小分割）
+    h = dt_frame / 10.0
+    
     while t_spent < dt_frame:
         if t_spent + h > dt_frame:
             h = dt_frame - t_spent
         
-        # 加速度の変化率や最小距離を確認
+        # 衝突判定（ステップ実行前）
+        if collision_radius > 0:
+            curr_v = handle_collisions(curr_p, curr_v, masses, collision_radius)
+            
+        # 加速度と距離の確認
         acc = calculate_acceleration(curr_p, masses, G, softening)
+        
         min_dist = float('inf')
+        max_acc = 0.0
         for i in range(len(masses)):
+            a_mag = np.linalg.norm(acc[i])
+            if a_mag > max_acc: max_acc = a_mag
             for j in range(i+1, len(masses)):
                 d = np.linalg.norm(curr_p[i] - curr_p[j])
                 if d < min_dist: min_dist = d
         
-        # 距離が近いほどステップhを小さくする
-        desired_h = 0.1 * min_dist  # 経験的なスケーリング
-        h = max(min(h, desired_h), 1e-5)
+        # 適応的ステップ制御
+        # 1. 距離に基づく制限 (近接遭遇時の精度確保)
+        # 2. 加速度に基づく制限 (力場が急変する場所で細かくする)
+        max_v = np.linalg.norm(curr_v, axis=1).max()
+        
+        # 衝突回避のための安全なステップサイズ
+        # h ~ 距離 / 速度
+        safe_h_dist = 0.05 * min_dist / (max_v + 1e-6)
+        
+        # 加速度の変化に基づく制限 (エネルギー保存の向上)
+        # h ~ sqrt(距離 / 加速度)
+        safe_h_acc = 0.05 * np.sqrt(min_dist / (max_acc + 1e-6))
+        
+        h = min(h, safe_h_dist, safe_h_acc)
+        
+        # 最小ステップのクランプ（無限ループ防止）
+        h = max(h, 1e-7)
+        
         if t_spent + h > dt_frame: h = dt_frame - t_spent
 
-        # RK4を用いてステップ実行
+        # RK4を用いて一歩進める
         curr_p, curr_v = rk4_step(curr_p, curr_v, masses, h, G, softening)
         t_spent += h
         
-        if h <= 1e-5 and t_spent < dt_frame:
-            # 強制的に進める（デッドロック防止）
-            h = dt_frame - t_spent
-            
     return curr_p, curr_v
 
-    return curr_p, curr_v

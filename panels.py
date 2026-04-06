@@ -16,6 +16,7 @@ class VIEW3D_PT_three_body_problem(bpy.types.Panel):
         layout.prop(props, "simulation_model")
         layout.prop(props, "time_scale")
         layout.prop(props, "simulation_scale")
+        layout.prop(props, "softening_multiplier")
         layout.separator()
 
         # Body selection
@@ -39,6 +40,17 @@ class VIEW3D_PT_three_body_problem(bpy.types.Panel):
         layout.separator()
 
         # Simulation Execution
+        layout.separator()
+        layout.label(text="Collision Settings", icon='PHYSICS')
+        box = layout.box()
+        box.prop(props, "use_collision")
+        if props.use_collision:
+            box.prop(props, "auto_collision_radius")
+            if not props.auto_collision_radius:
+                box.prop(props, "manual_collision_radius")
+            box.prop(props, "radius_offset")
+
+        layout.separator()
         layout.label(text="Simulation", icon='PHYSICS')
         layout.operator("three_body.bake_simulation", icon='RENDER_STILL')
 

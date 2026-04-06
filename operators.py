@@ -30,16 +30,38 @@ class THREEBODY_OT_bake_simulation(bpy.types.Operator):
         # However, for visual purposes in Blender, we often just want
         # the whole movement to be "bigger" in the viewport.
         # To keep the curves identical but larger, we scale G appropriately:
-        # F = G*m1*m2/R^2. If R -> R*S, then F -> F/S^2.
-        # But we want the same acceleration 'a' relative to the new scale.
-        # If we want the same orbital period, a must scale with S (a -> a*S).
-        # So G must scale by S^3. G_scaled = G * S^3.
         G = p.G * (props.simulation_scale ** 3)
         
-        softening = p.softening * props.simulation_scale
-        steps_per_frame = p.steps_per_frame
+        # Apply softening and the user's multiplier
+        # (Softening also needs to scale with Simulation Scale)
+        softening = p.softening * props.simulation_scale * props.softening_multiplier
         
-        # 2. Get Target Objects
+        # 2. Collision Logic & Radius Calculation
+        collision_dist = 0.0
+        if props.use_collision:
+            if props.auto_collision_radius:
+                # Calculate average distance from origin for each mesh
+                radii = []
+                for b_id in range(1, 4):
+                    obj = getattr(props, f"body{b_id}").obj
+                    if obj and obj.type == 'MESH':
+                        # Get vertex distances from object center
+                        verts = [v.co.length for v in obj.data.vertices]
+                        if verts:
+                            avg_r = sum(verts) / len(verts)
+                            radii.append(avg_r)
+                
+                if len(radii) >= 2:
+                    # Sum of average radii of two bodies
+                    # (Simplified: using the average of all bodies' radii * 2)
+                    collision_dist = (sum(radii) / len(radii)) * 2
+            else:
+                collision_dist = props.manual_collision_radius
+            
+            # Apply fine-tuning offset
+            collision_dist += props.radius_offset
+        
+        # 3. Get Target Objects
         bodies = []
         for i in range(1, 4):
             b = getattr(props, f"body{i}")
@@ -51,7 +73,6 @@ class THREEBODY_OT_bake_simulation(bpy.types.Operator):
         # Time step logic
         fps = scene.render.fps if props.use_scene_fps else props.fps_override
         dt_frame = (1.0 / fps) * props.time_scale
-        dt_substep = dt_frame / steps_per_frame
         
         # 3. Bake process
         start_f = props.frame_start
@@ -63,11 +84,10 @@ class THREEBODY_OT_bake_simulation(bpy.types.Operator):
                 obj.location = curr_p[i]
                 obj.keyframe_insert(data_path="location", frame=frame)
             
-            # Progress with optimized steps for this preset
-            for _ in range(steps_per_frame):
-                curr_p, curr_v = algo.rk4_step(curr_p, curr_v, masses, dt_substep, G, softening)
+            # Use adaptive step for high stability (especially for chaotic/close encounters)
+            curr_p, curr_v = algo.rk45_adaptive_step(curr_p, curr_v, masses, dt_frame, G, softening, collision_dist)
 
-        self.report({'INFO'}, f"Bake completed using {p.name} preset")
+        self.report({'INFO'}, f"Bake completed using {p.name} preset (Collision: {'ON' if props.use_collision else 'OFF'})")
         return {'FINISHED'}
 
 def register():

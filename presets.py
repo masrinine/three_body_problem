@@ -87,7 +87,7 @@ PRESETS = {
             [0.0, 0.0, -0.6]
         ],
         G=1.5,
-        softening=0.02,
+        softening=0.08, # Increased for stabilization
         steps_per_frame=40
     ),
 
@@ -105,7 +105,7 @@ PRESETS = {
             [0.0, 0.0, 0.5]
         ],
         G=2.0,
-        softening=0.05,
+        softening=0.15, # Increased for stabilization
         steps_per_frame=30
     ),
 
@@ -125,5 +125,59 @@ PRESETS = {
         G=1.2,
         softening=0.03,
         steps_per_frame=40
+    ),
+
+    'CHAOTIC_3D_CLOVER': ThreeBodyPreset(
+        name="Chaotic Clover 3D",
+        masses=[1.0, 1.0, 1.0],
+        positions=[
+            [1.0, 0.0, 0.0],
+            [-0.5, 0.866, 0.0],
+            [-0.5, -0.866, 0.5]
+        ],
+        velocities=[
+            [0.0, 1.0, 0.3],
+            [-0.866, -0.5, 0.3],
+            [0.866, -0.5, -0.6]
+        ],
+        G=2.0,
+        softening=0.2, # Stable visualization
+        steps_per_frame=100
+    ),
+
+    'CHAOTIC_3D_DOUBLE_HEX': ThreeBodyPreset(
+        name="Double Hex 3D (Non-Periodic)",
+        masses=[5.0, 5.0, 5.0],
+        positions=[
+            [1.5, 1.5, 0.0],
+            [-1.5, 1.5, 1.5],
+            [0.0, -2.0, -1.0]
+        ],
+        velocities=[
+            [-0.2, 0.1, 0.5],
+            [0.2, -0.1, -0.5],
+            [0.0, 0.0, 0.0]
+        ],
+        G=1.5,
+        softening=0.3, # Highly chaotic, needs more softening
+        steps_per_frame=100
+    ),
+
+    'PYTHAGOREAN_3D': ThreeBodyPreset(
+        name="Pythagorean 3D (Extreme Chaos)",
+        masses=[3.0, 4.0, 5.0],
+        positions=[
+            [1.0, 3.0, 0.0],
+            [-2.0, -1.0, 1.5],
+            [1.0, -1.0, -1.5]
+        ],
+        velocities=[
+            [0.1, 0.0, 0.0],
+            [0.0, -0.1, 0.0],
+            [-0.1, 0.1, 0.1]
+        ],
+        G=1.2,
+        softening=0.35, # Very high softening to prevent ejection
+        steps_per_frame=150
     )
 }
