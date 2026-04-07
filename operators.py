@@ -13,53 +13,57 @@ class THREEBODY_OT_bake_simulation(bpy.types.Operator):
         props = context.scene.three_body_props
         scene = context.scene
         
-        # 1. Prepare Preset Data
+        # 1. Prepare Data (Initial State)
         preset_key = props.simulation_model
-        if preset_key not in presets.PRESETS:
-            self.report({'ERROR'}, f"Preset {preset_key} not found!")
-            return {'CANCELLED'}
-            
-        p = presets.PRESETS[preset_key]
-        masses = p.masses
-        # Apply Simulation Scale to positions
-        curr_p = p.positions.copy() * props.simulation_scale
-        curr_v = p.velocities.copy()
+        p = presets.PRESETS.get(preset_key)
         
-        # Note: In gravitational physics, if we scale distance R by 'S', 
-        # to keep the orbit the same shape, we'd need to adjust G or V.
-        # However, for visual purposes in Blender, we often just want
-        # the whole movement to be "bigger" in the viewport.
-        # To keep the curves identical but larger, we scale G appropriately:
-        G = p.G * (props.simulation_scale ** 3)
+        # Gather initial state from UI properties (this supports custom edits)
+        masses = np.array([props.body1.mass, props.body2.mass, props.body3.mass])
+        curr_p = np.array([
+            list(props.body1.initial_location),
+            list(props.body2.initial_location),
+            list(props.body3.initial_location)
+        ])
+        curr_v = np.array([
+            list(props.body1.velocity),
+            list(props.body2.velocity),
+            list(props.body3.velocity)
+        ])
         
-        # Apply softening and the user's multiplier
-        # (Softening also needs to scale with Simulation Scale)
-        softening = p.softening * props.simulation_scale * props.softening_multiplier
+        # Base physics parameters
+        if p:
+            G_base = p.G
+            soft_base = p.softening
+        else:
+            # Fallback if in CUSTOM mode
+            G_base = 1.0
+            soft_base = 0.02
+
+        G = G_base * (props.simulation_scale ** 3)
+        softening = soft_base * props.simulation_scale * props.softening_multiplier
         
-        # 2. Collision Logic & Radius Calculation
-        collision_dist = 0.0
+        # 2. Collision Logic & Individual Radius Calculation
+        collision_radii = None
         if props.use_collision:
-            if props.auto_collision_radius:
-                # Calculate average distance from origin for each mesh
-                radii = []
-                for b_id in range(1, 4):
-                    obj = getattr(props, f"body{b_id}").obj
-                    if obj and obj.type == 'MESH':
-                        # Get vertex distances from object center
-                        verts = [v.co.length for v in obj.data.vertices]
-                        if verts:
-                            avg_r = sum(verts) / len(verts)
-                            radii.append(avg_r)
+            radii_list = []
+            for b_id in range(1, 4):
+                body_prop = getattr(props, f"body{b_id}")
+                obj = body_prop.obj
                 
-                if len(radii) >= 2:
-                    # Sum of average radii of two bodies
-                    # (Simplified: using the average of all bodies' radii * 2)
-                    collision_dist = (sum(radii) / len(radii)) * 2
-            else:
-                collision_dist = props.manual_collision_radius
+                r = 0.0
+                if props.auto_collision_radius and obj and obj.type == 'MESH':
+                    verts = [v.co.length for v in obj.data.vertices]
+                    if verts:
+                        max_r = max(verts)
+                        avg_r = sum(verts) / len(verts)
+                        r = ((max_r + avg_r) / 2.0) * obj.scale[0]
+                else:
+                    r = props.manual_collision_radius / 2.0 
+                
+                r += (props.radius_offset / 2.0)
+                radii_list.append(max(r, 0.001))
             
-            # Apply fine-tuning offset
-            collision_dist += props.radius_offset
+            collision_radii = np.array(radii_list)
         
         # 3. Get Target Objects
         bodies = []
@@ -85,9 +89,9 @@ class THREEBODY_OT_bake_simulation(bpy.types.Operator):
                 obj.keyframe_insert(data_path="location", frame=frame)
             
             # Use adaptive step for high stability (especially for chaotic/close encounters)
-            curr_p, curr_v = algo.rk45_adaptive_step(curr_p, curr_v, masses, dt_frame, G, softening, collision_dist)
+            curr_p, curr_v = algo.rk45_adaptive_step(curr_p, curr_v, masses, dt_frame, G, softening, collision_radii)
 
-        self.report({'INFO'}, f"Bake completed using {p.name} preset (Collision: {'ON' if props.use_collision else 'OFF'})")
+        self.report({'INFO'}, f"Bake completed using {p.name if p else 'Custom'} preset")
         return {'FINISHED'}
 
 def register():

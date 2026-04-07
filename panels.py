@@ -19,11 +19,17 @@ class VIEW3D_PT_three_body_problem(bpy.types.Panel):
         layout.prop(props, "softening_multiplier")
         layout.separator()
 
-        # Body selection
+        # Body selection & Manual Controls
         layout.label(text="Celestial Bodies", icon='OBJECT_DATA')
         for i in range(1, 4):
+            box = layout.box()
             body_prop = getattr(props, f"body{i}")
-            layout.prop(body_prop, "obj", text=f"Body {i}")
+            box.prop(body_prop, "obj", text=f"Body {i}")
+            if body_prop.obj:
+                col = box.column(align=True)
+                col.prop(body_prop, "mass")
+                col.prop(body_prop, "initial_location")
+                col.prop(body_prop, "velocity")
 
         layout.separator()
 

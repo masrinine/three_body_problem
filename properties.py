@@ -5,38 +5,104 @@ This module will contain property definitions for the addon.
 
 import bpy
 
+def update_custom_on_edit(self, context):
+    """If any body property is edited, switch the preset to 'CUSTOM'"""
+    # Find the parent property group to check the flag
+    # Using a slightly safer way to find the props
+    props = context.scene.three_body_props
+    
+    # Check if we are currently mid-preset-update
+    # We use a primitive data property to store this state reliably
+    if props.get("_updating_from_preset", False):
+        return
+
+    if props.simulation_model != 'CUSTOM':
+        props.simulation_model = 'CUSTOM'
+
+def update_location_to_viewport(self, context):
+    """When sidebar location is changed, move the object in viewport"""
+    if self.obj:
+        self.obj.location = self.initial_location
+    update_custom_on_edit(self, context)
+
+def on_body_obj_update(self, context):
+    """When a body object is selected, sync its current location to the property"""
+    if self.obj:
+        self.initial_location = self.obj.location
+    update_custom_on_edit(self, context)
+
 class BodyProperties(bpy.types.PropertyGroup):
     obj: bpy.props.PointerProperty(
         name="Object",
         type=bpy.types.Object,
-        description="Select a celestial body"
+        description="Select a celestial body",
+        update=on_body_obj_update
     )
     mass: bpy.props.FloatProperty(
         name="Mass",
         description="Mass of the body",
         default=1.0,
-        min=0.001
+        min=0.001,
+        update=update_custom_on_edit
     )
     initial_location: bpy.props.FloatVectorProperty(
         name="Initial Location",
         description="Initial location of the body",
         subtype='TRANSLATION',
         precision=3,
-        default=(0.0, 0.0, 0.0)
+        default=(0.0, 0.0, 0.0),
+        update=update_location_to_viewport
     )
     velocity: bpy.props.FloatVectorProperty(
         name="Initial Velocity",
         description="Initial velocity of the body",
         subtype='XYZ',
         precision=3,
-        default=(0.0, 0.0, 0.0)
+        default=(0.0, 0.0, 0.0),
+        update=update_custom_on_edit
     )
+    
+    # Internal property to store calculated collision radius
+    collision_radius: bpy.props.FloatProperty(
+        name="Collision Radius",
+        default=0.0
+    )
+
+def update_preset_values(self, context):
+    """When preset is changed, apply its values to the body properties"""
+    if self.simulation_model == 'CUSTOM':
+        return
+        
+    from . import presets
+    p = presets.PRESETS.get(self.simulation_model)
+    if not p:
+        return
+        
+    # Prevent the update callbacks from switching back to CUSTOM
+    self["_updating_from_preset"] = True
+    
+    try:
+        # Scale constants
+        S = self.simulation_scale
+        
+        for i in range(1, 4):
+            body = getattr(self, f"body{i}")
+            body.mass = p.masses[i-1]
+            body.initial_location = p.positions[i-1] * S
+            body.velocity = p.velocities[i-1]
+            
+            # Also move the objects in the viewport if they exist
+            if body.obj:
+                body.obj.location = body.initial_location
+    finally:
+        self["_updating_from_preset"] = False
 
 class ThreeBodyProperties(bpy.types.PropertyGroup):
     simulation_model: bpy.props.EnumProperty(
         name="Preset Model",
         description="Choose the preset three-body system",
         items=[
+            ('CUSTOM', "Custom (Modified)", "User-defined parameters"),
             ('FIGURE_8', "Figure-Eight (Stable Orbit)", "Three equal masses in a figure-eight orbit"),
             ('LAGRANGE_L4', "Lagrangian Points (Stable)", "Small mass at L4 of a two-body system"),
             ('PYTHAGOREAN', "Pythagorean (Chaotic)", "Classic restricted problem (Burrau's problem)"),
@@ -47,7 +113,8 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
             ('CHAOTIC_3D_DOUBLE_HEX', "Double Hex 3D", "Non-periodic hexagonal-like 3D orbit"),
             ('PYTHAGOREAN_3D', "Pythagorean 3D", "Extreme chaos version of the Pythagorean problem"),
         ],
-        default='FIGURE_8'
+        default='FIGURE_8',
+        update=update_preset_values
     )
 
     body1: bpy.props.PointerProperty(type=BodyProperties)
