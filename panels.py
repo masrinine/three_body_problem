@@ -21,6 +21,7 @@ class VIEW3D_PT_three_body_problem(bpy.types.Panel):
 
         # Body selection & Manual Controls
         layout.label(text="Celestial Bodies", icon='OBJECT_DATA')
+        layout.operator("three_body.setup_objects", icon='MESH_UVSPHERE')
         for i in range(1, 4):
             box = layout.box()
             body_prop = getattr(props, f"body{i}")

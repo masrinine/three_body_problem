@@ -41,6 +41,7 @@ class BodyProperties(bpy.types.PropertyGroup):
     mass: bpy.props.FloatProperty(
         name="Mass",
         description="Mass of the body",
+        unit='NONE', # Generic mass unit
         default=1.0,
         min=0.001,
         update=update_custom_on_edit
@@ -49,6 +50,7 @@ class BodyProperties(bpy.types.PropertyGroup):
         name="Initial Location",
         description="Initial location of the body",
         subtype='TRANSLATION',
+        unit='LENGTH',
         precision=3,
         default=(0.0, 0.0, 0.0),
         update=update_location_to_viewport
@@ -57,6 +59,7 @@ class BodyProperties(bpy.types.PropertyGroup):
         name="Initial Velocity",
         description="Initial velocity of the body",
         subtype='XYZ',
+        unit='VELOCITY',
         precision=3,
         default=(0.0, 0.0, 0.0),
         update=update_custom_on_edit
@@ -156,7 +159,7 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
     softening_multiplier: bpy.props.FloatProperty(
         name="Softening Multiplier",
         description="Increases 'softening' to prevent particles from flying away (0 = accuracy, high = stability)",
-        default=1.0,
+        default=3.0,
         min=0.0,
         max=10.0
     )

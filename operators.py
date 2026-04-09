@@ -94,8 +94,39 @@ class THREEBODY_OT_bake_simulation(bpy.types.Operator):
         self.report({'INFO'}, f"Bake completed using {p.name if p else 'Custom'} preset")
         return {'FINISHED'}
 
+class THREEBODY_OT_setup_objects(bpy.types.Operator):
+    """Create three UV spheres and assign them to the simulation slots"""
+    bl_idname = "three_body.setup_objects"
+    bl_label = "Setup Objects"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        props = context.scene.three_body_props
+        
+        # Positions for the spheres (slight offset to avoid overlapping)
+        offsets = [(-5.0, 0.0, 0.0), (0.0, 0.0, 0.0), (5.0, 0.0, 0.0)]
+        names = ["Body_1", "Body_2", "Body_3"]
+        
+        for i in range(3):
+            # Create UV Sphere
+            bpy.ops.mesh.primitive_uv_sphere_add(radius=1.0, location=offsets[i])
+            obj = context.active_object
+            obj.name = names[i]
+            
+            # Assign to the property
+            body_prop = getattr(props, f"body{i+1}")
+            body_prop.obj = obj
+            
+            # Sync the initial location property to the new object location
+            body_prop.initial_location = obj.location
+            
+        self.report({'INFO'}, "Three spheres created and assigned.")
+        return {'FINISHED'}
+
 def register():
     bpy.utils.register_class(THREEBODY_OT_bake_simulation)
+    bpy.utils.register_class(THREEBODY_OT_setup_objects)
 
 def unregister():
     bpy.utils.unregister_class(THREEBODY_OT_bake_simulation)
+    bpy.utils.unregister_class(THREEBODY_OT_setup_objects)
