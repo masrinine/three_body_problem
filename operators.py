@@ -123,10 +123,59 @@ class THREEBODY_OT_setup_objects(bpy.types.Operator):
         self.report({'INFO'}, "Three spheres created and assigned.")
         return {'FINISHED'}
 
+class THREEBODY_OT_unbake_simulation(bpy.types.Operator):
+    """Remove all location keyframes from simulation objects"""
+    bl_idname = "three_body.unbake_simulation"
+    bl_label = "Unbake Simulation"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        props = context.scene.three_body_props
+        # Enable only if at least one body object has animation data
+        for i in range(1, 4):
+            body = getattr(props, f"body{i}")
+            if body.obj and body.obj.animation_data and body.obj.animation_data.action:
+                return True
+        return False
+
+    def execute(self, context):
+        props = context.scene.three_body_props
+        
+        objects_cleared = 0
+        for i in range(1, 4):
+            body = getattr(props, f"body{i}")
+            if body.obj and body.obj.animation_data:
+                # Remove location animation
+                action = body.obj.animation_data.action
+                if action:
+                    # Find and remove fcurves related to location
+                    fcurves = [fc for fc in action.fcurves if fc.data_path == "location"]
+                    for fc in fcurves:
+                        action.fcurves.remove(fc)
+                    
+                    # If no fcurves left, remove the action/anim_data
+                    if not action.fcurves:
+                        body.obj.animation_data_clear()
+                    
+                    objects_cleared += 1
+                
+                # Reset to initial location
+                body.obj.location = body.initial_location
+
+        if objects_cleared > 0:
+            self.report({'INFO'}, f"Cleared keyframes for {objects_cleared} objects.")
+        else:
+            self.report({'INFO'}, "No keyframes found to clear.")
+            
+        return {'FINISHED'}
+
 def register():
     bpy.utils.register_class(THREEBODY_OT_bake_simulation)
+    bpy.utils.register_class(THREEBODY_OT_unbake_simulation)
     bpy.utils.register_class(THREEBODY_OT_setup_objects)
 
 def unregister():
     bpy.utils.unregister_class(THREEBODY_OT_bake_simulation)
+    bpy.utils.unregister_class(THREEBODY_OT_unbake_simulation)
     bpy.utils.unregister_class(THREEBODY_OT_setup_objects)

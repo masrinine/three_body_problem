@@ -133,7 +133,7 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
     frame_end: bpy.props.IntProperty(
         name="End Frame",
         description="Frame to end simulation",
-        default=500,
+        default=250,
         min=1
     )
 

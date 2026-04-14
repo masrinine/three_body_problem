@@ -60,6 +60,7 @@ class VIEW3D_PT_three_body_problem(bpy.types.Panel):
         layout.separator()
         layout.label(text="Simulation", icon='PHYSICS')
         layout.operator("three_body.bake_simulation", icon='RENDER_STILL')
+        layout.operator("three_body.unbake_simulation", icon='X')
 
 def register():
     bpy.utils.register_class(VIEW3D_PT_three_body_problem)
