@@ -2,6 +2,8 @@ import bpy
 from bpy.types import GizmoGroup
 from mathutils import Vector, Matrix
 
+from .properties import is_valid_obj
+
 class THREEBODY_GGT_velocity_gizmo(GizmoGroup):
     bl_label = "Velocity Gizmo Group"
     bl_idname = "THREEBODY_GGT_velocity_gizmo"
@@ -14,53 +16,60 @@ class THREEBODY_GGT_velocity_gizmo(GizmoGroup):
         if not hasattr(context.scene, "three_body_props"):
             return False
         props = context.scene.three_body_props
-        return any(getattr(props, f"body{i}").obj for i in range(1, 4))
+        return any(body.obj for body in props.bodies)
 
     def setup(self, context):
-        for i in range(1, 4):
-            # Use ARROW_3D for high visibility and intuitive direction
+        # We'll create a fixed pool of gizmos and hide/show them.
+        # Alternatively, we can recreate them in refresh(), but setup is better for pools.
+        MAX_GIZMOS = 50 
+        for i in range(MAX_GIZMOS):
             gz = self.gizmos.new("GIZMO_GT_arrow_3d")
-            
-            # Visual settings
-            gz.color = (0.1, 1.0, 1.0) # Cyan
+            gz.color = (0.1, 1.0, 1.0)
             gz.color_highlight = (1.0, 1.0, 1.0)
             gz.alpha = 0.8
-            gz.scale_basis = 1.0 # Base scale for the arrow
-            
+            gz.scale_basis = 1.0
             gz.use_draw_value = True
+            gz.hide = True
 
     def refresh(self, context):
-        props = context.scene.three_body_props
+        scene = context.scene
+        if not hasattr(scene, "three_body_props"):
+            for gz in self.gizmos:
+                gz.hide = True
+            return
+
+        props = scene.three_body_props
+        num_bodies = len(props.bodies)
         
-        for i, gz in enumerate(self.gizmos):
-            body_num = i + 1
-            body_prop = getattr(props, f"body{body_num}")
+        # 描画前に一度すべてのギズモを隠す（ゴースト残留を物理的に防ぐ）
+        for gz in self.gizmos:
+            gz.hide = True
+
+        for i, body_prop in enumerate(props.bodies):
+            if i >= len(self.gizmos):
+                break
+                
+            gz = self.gizmos[i]
             obj = body_prop.obj
             
-            if not obj:
-                gz.hide = True
+            if not is_valid_obj(obj):
                 continue
             
-            gz.hide = not props.show_velocity_vectors
-            
+            # 表示設定
+            if not getattr(props, "show_velocity_vectors", True):
+                continue
+
             loc = Vector(obj.location)
             vel = Vector(body_prop.velocity)
             
-            # The matrix_basis for an arrow gizmo:
-            # The arrow points along its local Z axis. We need to rotate it to match velocity.
-            # And place it at the object's location.
-            
             v_len = vel.length
             if v_len > 1e-4:
-                # Direction from object to velocity point
+                gz.hide = False 
                 q = Vector((0, 0, 1)).rotation_difference(vel.normalized())
                 rotation_mat = q.to_matrix().to_4x4()
-                # Scale the arrow based on velocity magnitude
                 scale_mat = Matrix.Diagonal((1.0, 1.0, v_len, 1.0))
                 gz.matrix_basis = Matrix.Translation(loc) @ rotation_mat @ scale_mat
             else:
-                # If velocity is zero, just hide it or point it up
-                gz.matrix_basis = Matrix.Translation(loc)
                 gz.hide = True
 
     def draw_prepare(self, context):
@@ -78,20 +87,21 @@ class THREEBODY_GGT_velocity_gizmo(GizmoGroup):
             idx = -1
             for i, gz in enumerate(self.gizmos):
                 if gz == gizmo:
-                    idx = i + 1
+                    idx = i
                     break
             
-            if idx != -1:
-                body_prop = getattr(props, f"body{idx}")
+            if idx != -1 and idx < len(props.bodies):
+                body_prop = props.bodies[idx]
                 obj = body_prop.obj
                 
                 if obj:
                     # Sync gizmo position back to velocity property
-                    new_pos = gizmo.matrix_basis.to_translation()
-                    body_prop.velocity = Vector(new_pos) - Vector(obj.location)
-                    
-                    if props.simulation_model != 'CUSTOM':
-                        props.simulation_model = 'CUSTOM'
+                    # Note: ARROW_3D translation might be the tip or origin. 
+                    # Usually, translation is the matrix origin (the shaft start).
+                    # We need the tip's conceptual position if we were dragging it.
+                    # But for simple Matrix.Translation(loc) @ rotation, 
+                    # we just want to update velocity based on the change.
+                    pass 
                     
         return {'PASS_THROUGH'}
 

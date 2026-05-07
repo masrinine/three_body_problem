@@ -1,36 +1,66 @@
 import numpy as np
+import time
 
-def calculate_acceleration(positions, masses, G=1.0, softening=0.0, radii=None):
+class SimulationError(Exception):
+    """Base exception for simulation safety triggers"""
+    pass
+
+class TimeoutError(SimulationError):
+    pass
+
+class StabilityError(SimulationError):
+    pass
+
+def calculate_acceleration(positions, velocities, masses, G=1.0, softening=0.0, radii=None):
     """
-    各天体に働く加速度を計算します。
-    radii: (N,) 各天体の半径。指定がある場合、反発力 (斥力) を付加します。
+    Vectorized calculation of gravitational and repulsive forces.
     """
     N = positions.shape[0]
-    acceleration = np.zeros_like(positions)
+    # Matrix of displacement vectors (N, N, 3)
+    # diff[i, j] = positions[j] - positions[i]
+    diff = positions[np.newaxis, :, :] - positions[:, np.newaxis, :]
     
-    for i in range(N):
-        for j in range(N):
-            if i == j:
-                continue
-            r_vec = positions[j] - positions[i]
-            dist_sq = np.sum(r_vec**2)
-            dist = np.sqrt(dist_sq)
-            
-            # 1. 万有引力
-            # a = G * m_j * r_vec / (r^2 + eps^2)^(3/2)
-            denom = (dist_sq + softening**2)**(1.5)
-            
-            if denom > 1e-12:
-                acceleration[i] += G * masses[j] * r_vec / denom
+    # Square of distances (N, N)
+    dist_sq = np.sum(diff**2, axis=-1)
+    # Add softening and avoid division by zero
+    dist_inv3 = (dist_sq + softening**2)**(-1.5)
+    np.fill_diagonal(dist_inv3, 0) # No self-gravity
+    
+    # Gravity: a_i = sum_j (G * m_j * diff_{ij} / dist_{ij}^3)
+    # Result: (N, 3)
+    acceleration = G * np.sum(masses[np.newaxis, :, np.newaxis] * diff * dist_inv3[:, :, np.newaxis], axis=1)
 
-            # 2. 斥力 (衝突回避)
-            if radii is not None:
-                threshold = radii[i] + radii[j]
-                if dist < threshold and dist > 1e-9:
-                    # 以前の指数的な斥力モデル（逆4乗）
-                    # 重力定数と質量に比例させ、距離の4乗で反比例
-                    repulsion_mag = (G * masses[j]) * ((threshold / dist)**4 - 1.0)
-                    acceleration[i] -= repulsion_mag * (r_vec / dist)
+    # 2. 斥力 (Repulsion) と Damping
+    if radii is not None:
+        dist = np.sqrt(dist_sq)
+        # Avoid division by zero on diagonal
+        np.fill_diagonal(dist, 1.0)
+        
+        thresholds = radii[np.newaxis, :] + radii[:, np.newaxis]
+        # Mask for pairs within contact
+        contact_mask = (dist < thresholds) & (dist > 1e-9)
+        np.fill_diagonal(contact_mask, False)
+
+        if np.any(contact_mask):
+            # Repulsion (r^-6)
+            ratio = thresholds / dist
+            repulsion_mag = (G * masses[np.newaxis, :]) * (ratio**6 - 1.0)
+            # Apply only where in contact
+            repulsion_mag = np.where(contact_mask, repulsion_mag, 0)
+            acceleration -= np.sum(repulsion_mag[:, :, np.newaxis] * (diff / dist[:, :, np.newaxis]), axis=1)
+
+            # Damping (relative velocity reduction)
+            rel_vel = velocities[np.newaxis, :, :] - velocities[:, np.newaxis, :]
+            # Dot product of relative velocity and displacement
+            vel_in_r_component = np.sum(rel_vel * diff, axis=-1) / (dist_sq + 1e-12)
+            
+            # Damp only when objects are moving toward each other (vel_in_r_component < 0)
+            damp_mask = contact_mask & (vel_in_r_component < 0)
+            damping_factor = 0.5 * (ratio - 1.0)
+            damping_force = np.where(damp_mask[:, :, np.newaxis], 
+                                     damping_factor[:, :, np.newaxis] * rel_vel * masses[np.newaxis, :, np.newaxis], 
+                                     0)
+            acceleration -= np.sum(damping_force, axis=1)
                 
     return acceleration
 
@@ -39,7 +69,7 @@ def rk4_step(positions, velocities, masses, dt, G=1.0, softening=0.0, radii=None
     4次ルンゲ＝クッタ法(RK4)を用いて、dt秒後の位置と速度を計算します。
     """
     def compute_derivatives(p, v):
-        a = calculate_acceleration(p, masses, G, softening, radii)
+        a = calculate_acceleration(p, v, masses, G, softening, radii)
         return v, a
 
     v1, a1 = compute_derivatives(positions, velocities)
@@ -52,31 +82,12 @@ def rk4_step(positions, velocities, masses, dt, G=1.0, softening=0.0, radii=None
     
     return next_positions, next_velocities
 
-def velocity_verlet_step(positions, velocities, masses, dt, G=1.0, softening=0.0):
-    """
-    Velocity Verlet法（2次シンプレクティック積分）を用いて、dt秒後の位置と速度を計算します。
-    """
-    acc_t = calculate_acceleration(positions, masses, G, softening)
-    
-    # 速度を半ステップ進める
-    velocities_half = velocities + acc_t * (dt / 2.0)
-    
-    # 位置を全ステップ進める
-    next_positions = positions + velocities_half * dt
-    
-    # 新しい位置での加速度を計算
-    acc_next = calculate_acceleration(next_positions, masses, G, softening)
-    
-    # 速度をさらに半ステップ進める
-    next_velocities = velocities_half + acc_next * (dt / 2.0)
-    
-    return next_positions, next_velocities
-
-def rk45_adaptive_step(positions, velocities, masses, dt_frame, G=1.0, softening=0.0, collision_radii=None, base_substeps=10):
+def rk45_adaptive_step(positions, velocities, masses, dt_frame, G=1.0, softening=0.0, collision_radii=None, base_substeps=10, timeout_s=5.0, max_v_safety=1000.0):
     """
     1フレーム分(dt_frame)の積分を実行するために、適応的時間刻みを用います。
     collision_radii: np.array([r1, r2, r3]) が渡された場合、計算に反映させます。
     """
+    start_time = time.time()
     t_spent = 0.0
     curr_p = positions.copy()
     curr_v = velocities.copy()
@@ -85,18 +96,27 @@ def rk45_adaptive_step(positions, velocities, masses, dt_frame, G=1.0, softening
     h = dt_frame / max(float(base_substeps), 1.0)
     
     while t_spent < dt_frame:
+        # Time-out Check
+        if time.time() - start_time > timeout_s:
+            raise TimeoutError(f"Simulation frame exceeded {timeout_s}s limit.")
+
         if t_spent + h > dt_frame:
             h = dt_frame - t_spent
             
         # 加速度と距離の確認
-        acc = calculate_acceleration(curr_p, masses, G, softening, collision_radii)
+        acc = calculate_acceleration(curr_p, curr_v, masses, G, softening, collision_radii)
         
-        min_dist = float('inf')
+        min_dist = float("inf")
         max_acc = 0.0
         for i in range(len(masses)):
             # 斥力が働いている時は非常に大きくなる加速度を考慮
             a_mag = np.linalg.norm(acc[i])
             if a_mag > max_acc: max_acc = a_mag
+            
+            # Speed safety check
+            if np.linalg.norm(curr_v[i]) > max_v_safety:
+                raise StabilityError(f"Body {i+1} exceeded speed limit ({max_v_safety}). Simulation aborted for stability.")
+
             for j in range(i+1, len(masses)):
                 d = np.linalg.norm(curr_p[i] - curr_p[j])
                 if d < min_dist: min_dist = d
@@ -117,4 +137,3 @@ def rk45_adaptive_step(positions, velocities, masses, dt_frame, G=1.0, softening
         t_spent += h
         
     return curr_p, curr_v
-
