@@ -5,6 +5,16 @@ This module will contain property definitions for the addon.
 
 import bpy
 
+def sync_body_location_to_object(body_prop):
+    """Move the linked Blender object to the stored initial location."""
+    if body_prop.obj:
+        body_prop.obj.location = body_prop.initial_location
+
+def capture_body_location_from_object(body_prop):
+    """Store the current Blender object location back into the property."""
+    if body_prop.obj:
+        body_prop.initial_location = body_prop.obj.location
+
 def update_custom_on_edit(self, context):
     """If any body property is edited, switch the preset to 'CUSTOM'"""
     # Find the parent property group to check the flag
@@ -21,15 +31,20 @@ def update_custom_on_edit(self, context):
 
 def update_location_to_viewport(self, context):
     """When sidebar location is changed, move the object in viewport"""
-    if self.obj:
-        self.obj.location = self.initial_location
+    sync_body_location_to_object(self)
     update_custom_on_edit(self, context)
 
 def on_body_obj_update(self, context):
     """When a body object is selected, sync its current location to the property"""
-    if self.obj:
-        self.initial_location = self.obj.location
+    capture_body_location_from_object(self)
     update_custom_on_edit(self, context)
+
+def apply_body_preset(body_prop, mass, location, velocity):
+    """Apply one preset body state to the property group."""
+    body_prop.mass = mass
+    body_prop.initial_location = location
+    body_prop.velocity = velocity
+    sync_body_location_to_object(body_prop)
 
 class BodyProperties(bpy.types.PropertyGroup):
     obj: bpy.props.PointerProperty(
@@ -90,13 +105,7 @@ def update_preset_values(self, context):
         
         for i in range(1, 4):
             body = getattr(self, f"body{i}")
-            body.mass = p.masses[i-1]
-            body.initial_location = p.positions[i-1] * S
-            body.velocity = p.velocities[i-1]
-            
-            # Also move the objects in the viewport if they exist
-            if body.obj:
-                body.obj.location = body.initial_location
+            apply_body_preset(body, p.masses[i-1], p.positions[i-1] * S, p.velocities[i-1])
     finally:
         self["_updating_from_preset"] = False
 
@@ -204,8 +213,8 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
 
     gravity_strength: bpy.props.FloatProperty(
         name="Gravity Strength",
-        description="Global multiplier for the gravitational force to make interactions more visible",
-        default=5.0,
+        description="Global multiplier for the gravitational force",
+        default=1.0,
         min=0.0
     )
 

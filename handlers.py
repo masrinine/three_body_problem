@@ -1,5 +1,6 @@
 import bpy
 from bpy.app.handlers import persistent
+from .properties import capture_body_location_from_object
 
 @persistent
 def sync_viewport_to_sidebar(scene):
@@ -21,10 +22,9 @@ def sync_viewport_to_sidebar(scene):
                 # If viewport location differs from stored property, update property
                 # and trigger CUSTOM mode switch via the update callback
                 if (body_prop.obj.location - body_prop.initial_location).length > 0.0001:
-                    # Setting the property directly bypasses some update logic but
-                    # we want the 'CUSTOM' switch. 
-                    # Note: props.simulation_model = 'CUSTOM' is handled in the property update
-                    body_prop.initial_location = body_prop.obj.location
+                    # Setting the property directly keeps the CUSTOM switch behavior
+                    # via the update callback in properties.py.
+                    capture_body_location_from_object(body_prop)
 
 def register():
     # depsgraph_update_post is triggered whenever the scene changes (e.g. object moved)

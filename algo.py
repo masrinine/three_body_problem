@@ -72,7 +72,7 @@ def velocity_verlet_step(positions, velocities, masses, dt, G=1.0, softening=0.0
     
     return next_positions, next_velocities
 
-def rk45_adaptive_step(positions, velocities, masses, dt_frame, G=1.0, softening=0.0, collision_radii=None):
+def rk45_adaptive_step(positions, velocities, masses, dt_frame, G=1.0, softening=0.0, collision_radii=None, base_substeps=10):
     """
     1フレーム分(dt_frame)の積分を実行するために、適応的時間刻みを用います。
     collision_radii: np.array([r1, r2, r3]) が渡された場合、計算に反映させます。
@@ -82,7 +82,7 @@ def rk45_adaptive_step(positions, velocities, masses, dt_frame, G=1.0, softening
     curr_v = velocities.copy()
     
     # 基本ステップサイズ（1フレームを小分割）
-    h = dt_frame / 10.0
+    h = dt_frame / max(float(base_substeps), 1.0)
     
     while t_spent < dt_frame:
         if t_spent + h > dt_frame:

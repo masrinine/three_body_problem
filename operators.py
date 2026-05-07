@@ -34,12 +34,14 @@ class THREEBODY_OT_bake_simulation(bpy.types.Operator):
         if p:
             G_base = p.G
             soft_base = p.softening
+            base_substeps = p.steps_per_frame
         else:
             # Fallback if in CUSTOM mode
             G_base = 1.0
             soft_base = 0.02
+            base_substeps = 10
 
-        G = G_base * (props.simulation_scale ** 3)
+        G = G_base * (props.simulation_scale ** 3) * props.gravity_strength
         softening = soft_base * props.simulation_scale * props.softening_multiplier
         
         # 2. Collision Logic & Individual Radius Calculation
@@ -89,7 +91,16 @@ class THREEBODY_OT_bake_simulation(bpy.types.Operator):
                 obj.keyframe_insert(data_path="location", frame=frame)
             
             # Use adaptive step for high stability (especially for chaotic/close encounters)
-            curr_p, curr_v = algo.rk45_adaptive_step(curr_p, curr_v, masses, dt_frame, G, softening, collision_radii)
+            curr_p, curr_v = algo.rk45_adaptive_step(
+                curr_p,
+                curr_v,
+                masses,
+                dt_frame,
+                G,
+                softening,
+                collision_radii,
+                base_substeps=base_substeps,
+            )
 
         self.report({'INFO'}, f"Bake completed using {p.name if p else 'Custom'} preset")
         return {'FINISHED'}
@@ -149,13 +160,20 @@ class THREEBODY_OT_unbake_simulation(bpy.types.Operator):
                 # Remove location animation
                 action = body.obj.animation_data.action
                 if action:
-                    # Find and remove fcurves related to location
-                    fcurves = [fc for fc in action.fcurves if fc.data_path == "location"]
-                    for fc in fcurves:
-                        action.fcurves.remove(fc)
+                    # In Blender 4.0+, the access depends on the type. 
+                    # Generally, action.fcurves is for older actions. 
+                    # For newer ones, it might be action.id_data or accessed differently.
+                    # But the most common error is because of the data type.
+                    try:
+                        fcurves = [fc for fc in action.fcurves if fc.data_path == "location"]
+                        for fc in fcurves:
+                            action.fcurves.remove(fc)
+                    except AttributeError:
+                        # Fallback for different action structures
+                        pass
                     
                     # If no fcurves left, remove the action/anim_data
-                    if not action.fcurves:
+                    if not hasattr(action, 'fcurves') or not action.fcurves:
                         body.obj.animation_data_clear()
                     
                     objects_cleared += 1

@@ -1,43 +1,40 @@
 import bpy
 from bpy.types import GizmoGroup
+from mathutils import Vector, Matrix
 
 class THREEBODY_GGT_velocity_gizmo(GizmoGroup):
     bl_label = "Velocity Gizmo Group"
+    bl_idname = "THREEBODY_GGT_velocity_gizmo"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'WINDOW'
     bl_options = {'3D', 'PERSISTENT'}
 
     @classmethod
     def poll(cls, context):
+        if not hasattr(context.scene, "three_body_props"):
+            return False
         props = context.scene.three_body_props
         return any(getattr(props, f"body{i}").obj for i in range(1, 4))
 
     def setup(self, context):
-        props = context.scene.three_body_props
-        
         for i in range(1, 4):
-            # Create a move gizmo for each body
-            gz = self.gizmos.new("GIZMO_GT_move_3d")
-            
-            # Use a custom property to store the index
-            gz.body_index = i
+            # Use ARROW_3D for high visibility and intuitive direction
+            gz = self.gizmos.new("GIZMO_GT_arrow_3d")
             
             # Visual settings
-            gz.color = (0.1, 0.5, 1.0) # Blue-ish
-            gz.color_highlight = (0.4, 0.7, 1.0)
-            gz.alpha = 0.5
-            gz.scale_basis = 0.2
+            gz.color = (0.1, 1.0, 1.0) # Cyan
+            gz.color_highlight = (1.0, 1.0, 1.0)
+            gz.alpha = 0.8
+            gz.scale_basis = 1.0 # Base scale for the arrow
             
-            # Hide the default line
             gz.use_draw_value = True
-            gz.draw_options = {'DRAW_LINE'}
 
     def refresh(self, context):
         props = context.scene.three_body_props
         
-        for gz in self.gizmos:
-            i = gz.body_index
-            body_prop = getattr(props, f"body{i}")
+        for i, gz in enumerate(self.gizmos):
+            body_num = i + 1
+            body_prop = getattr(props, f"body{body_num}")
             obj = body_prop.obj
             
             if not obj:
@@ -46,60 +43,55 @@ class THREEBODY_GGT_velocity_gizmo(GizmoGroup):
             
             gz.hide = not props.show_velocity_vectors
             
-            # Target property to link
-            # We want to link the gizmo's offset to the velocity property
-            # However, 3d move gizmo usually works on a matrix.
-            # We will manually sync in draw/refresh or use target_set_prop
+            loc = Vector(obj.location)
+            vel = Vector(body_prop.velocity)
             
-            # Set the's matrix to the object's location
-            # The gizmo itself will represent the velocity VECTOR starting from the object
+            # The matrix_basis for an arrow gizmo:
+            # The arrow points along its local Z axis. We need to rotate it to match velocity.
+            # And place it at the object's location.
             
-            # Position the gizmo at the end of the velocity vector
-            vel = body_prop.velocity
-            loc = obj.location
-            
-            # Matrix for the gizmo position
-            from mathutils import Matrix
-            gz.matrix_basis = Matrix.Translation(loc + vel)
+            v_len = vel.length
+            if v_len > 1e-4:
+                # Direction from object to velocity point
+                q = Vector((0, 0, 1)).rotation_difference(vel.normalized())
+                rotation_mat = q.to_matrix().to_4x4()
+                # Scale the arrow based on velocity magnitude
+                scale_mat = Matrix.Diagonal((1.0, 1.0, v_len, 1.0))
+                gz.matrix_basis = Matrix.Translation(loc) @ rotation_mat @ scale_mat
+            else:
+                # If velocity is zero, just hide it or point it up
+                gz.matrix_basis = Matrix.Translation(loc)
+                gz.hide = True
 
-            # Link the gizmo to the velocity property
-            # For "GIZMO_GT_move_3d", it expects a 'offset' or similar
-            # Since we want bidirectional sync with the 'velocity' property (which is loc_relative),
-            # we use target_set_handler to update the velocity when dragged.
-            
     def draw_prepare(self, context):
-        """Update gizmo positions every frame/draw call"""
-        props = context.scene.three_body_props
-        
-        for gz in self.gizmos:
-            i = gz.body_index
-            body_prop = getattr(props, f"body{i}")
-            obj = body_prop.obj
-            if obj and not gz.hide:
-                from mathutils import Matrix
-                # Keep it at object + velocity
-                gz.matrix_basis = Matrix.Translation(obj.location + body_prop.velocity)
+        """Keep gizmos attached to objects and oriented to velocity"""
+        self.refresh(context)
 
     def invoke(self, context, event):
-        # This allows clicking and dragging
         return {'PASS_THROUGH'}
 
     def modal(self, context, event, gizmo):
-        # Handle the drag event
         if event.type == 'MOUSEMOVE':
             props = context.scene.three_body_props
-            i = gizmo.body_index
-            body_prop = getattr(props, f"body{i}")
-            obj = body_prop.obj
             
-            if obj:
-                # Update velocity based on gizmo position relative to object
-                new_pos = gizmo.matrix_basis.to_translation()
-                body_prop.velocity = new_pos - obj.location
+            # Identify which body this gizmo belongs to
+            idx = -1
+            for i, gz in enumerate(self.gizmos):
+                if gz == gizmo:
+                    idx = i + 1
+                    break
+            
+            if idx != -1:
+                body_prop = getattr(props, f"body{idx}")
+                obj = body_prop.obj
                 
-                # Switch to CUSTOM if modified
-                if props.simulation_model != 'CUSTOM':
-                    props.simulation_model = 'CUSTOM'
+                if obj:
+                    # Sync gizmo position back to velocity property
+                    new_pos = gizmo.matrix_basis.to_translation()
+                    body_prop.velocity = Vector(new_pos) - Vector(obj.location)
+                    
+                    if props.simulation_model != 'CUSTOM':
+                        props.simulation_model = 'CUSTOM'
                     
         return {'PASS_THROUGH'}
 
