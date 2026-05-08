@@ -128,21 +128,6 @@ def update_preset_values(self, context):
         self["_updating_from_preset"] = False
 
 class ThreeBodyProperties(bpy.types.PropertyGroup):
-    # Batch editing properties
-    batch_mass: bpy.props.FloatProperty(
-        name="Mass",
-        description="Set this mass to all bodies",
-        default=1.0,
-        min=0.001
-    )
-    
-    batch_velocity: bpy.props.FloatVectorProperty(
-        name="Velocity",
-        description="Set this velocity to all bodies",
-        subtype='XYZ',
-        unit='VELOCITY'
-    )
-    
     last_simulation_report: bpy.props.StringProperty(
         name="Last Simulation Report",
         default="No simulation baked yet."

@@ -6,33 +6,57 @@ from .properties import is_valid_obj
 @persistent
 def sync_viewport_to_sidebar(scene):
     """
-    Sync object locations from viewport to the sidebar properties in real-time.
-    Includes aggressive lifecycle management for deleted objects.
+    Optimized real-time sync with sparse updates to minimize UI lag.
     """
+    if not hasattr(scene, "three_body_props"):
+        return
+        
     props = scene.three_body_props
-    
     if props.is_baking:
         return
 
+    # Look up names once to speed up O(N) scene checks
+    scene_obj_names = {obj.name for obj in scene.objects}
+    
     to_remove = []
+    has_changes = False
+    is_start = (scene.frame_current == props.frame_start)
+    skip_sync = props.get("_updating_from_preset", False)
+
     for i, body_prop in enumerate(props.bodies):
-        if not is_valid_obj(body_prop.obj):
+        obj = body_prop.obj
+        
+        # 1. Validation Logic
+        is_invalid = False
+        if not obj:
+            is_invalid = True
+        else:
+            try:
+                if obj.name not in scene_obj_names:
+                    is_invalid = True
+            except (ReferenceError, AttributeError):
+                is_invalid = True
+
+        if is_invalid:
             to_remove.append(i)
+            has_changes = True
             continue
 
-        # 2. 位置の同期 (開始フレームのみ)
-        if scene.frame_current == props.frame_start:
-            if not props.get("_updating_from_preset", False):
-                if (body_prop.obj.location - body_prop.initial_location).length > 0.0001:
-                    body_prop.initial_location = body_prop.obj.location
+        # 2. Sync Location (Only if significant change on start frame)
+        if is_start and not skip_sync:
+            # Using length_squared for faster comparison
+            if (obj.location - body_prop.initial_location).length_squared > 0.000001:
+                body_prop.initial_location = obj.location
 
-    if to_remove:
+    if has_changes:
         for idx in reversed(to_remove):
             props.bodies.remove(idx)
         
+        # Targeted redraw for relevant areas
         for window in bpy.context.window_manager.windows:
             for area in window.screen.areas:
-                area.tag_redraw()
+                if area.type in {'VIEW_3D', 'PROPERTIES'}:
+                    area.tag_redraw()
 
 @persistent
 def cleanup_on_load(scene):

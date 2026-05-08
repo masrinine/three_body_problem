@@ -50,14 +50,6 @@ class VIEW3D_PT_three_body_bodies(bpy.types.Panel):
         row.prop(props, "setup_body_count", text="Count")
         row.operator("three_body.setup_objects", text="Setup")
         
-        # Batch Edit Section
-        box = layout.box()
-        box.label(text="Batch Edit All", icon='TOOL_SETTINGS')
-        col = box.column(align=True)
-        col.prop(props, "batch_mass")
-        col.prop(props, "batch_velocity")
-        col.operator("three_body.batch_apply_properties", text="Apply to All", icon='CHECKMARK')
-        
         # New synchronization buttons
         layout.separator()
         col = layout.column(align=True)
@@ -161,9 +153,9 @@ class THREEBODY_OT_add_body(bpy.types.Operator):
         return {'FINISHED'}
 
 class THREEBODY_OT_remove_body(bpy.types.Operator):
-    """Remove a body slot and its associated object"""
+    """Remove this body slot from the list (does NOT delete the object from scene)"""
     bl_idname = "three_body.remove_body"
-    bl_label = "Remove Body"
+    bl_label = "Remove Body Slot"
     bl_options = {'REGISTER', 'UNDO'}
     
     index: bpy.props.IntProperty() # type: ignore
@@ -171,25 +163,12 @@ class THREEBODY_OT_remove_body(bpy.types.Operator):
     def execute(self, context):
         props = context.scene.three_body_props
         if self.index < len(props.bodies):
-            body = props.bodies[self.index]
-            
-            # オブジェクトが実在する場合は削除を試みる
-            obj = body.obj
-            if obj:
-                # 削除前に参照を隠す（ギズモへの通知を確実にする）
-                body.obj = None
-                try:
-                    bpy.data.objects.remove(obj, do_unlink=True)
-                except:
-                    pass
-            
+            # スロットをリストから削除するだけで、オブジェクトそのものは残す
             props.bodies.remove(self.index)
             
-            # 強制的に再描画してギズモを消去
-            for region in context.area.regions:
-                if region.type == 'WINDOW':
-                    region.tag_redraw()
-                    
+            # ギズモやUIの更新を促す
+            context.area.tag_redraw()
+            
         return {'FINISHED'}
 
 def register():
