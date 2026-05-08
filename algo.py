@@ -13,53 +13,71 @@ class StabilityError(SimulationError):
 
 def calculate_acceleration(positions, velocities, masses, G=1.0, softening=0.0, radii=None):
     """
-    Vectorized calculation of gravitational and repulsive forces.
+    Highly optimized vectorized calculation of gravitational and repulsive forces.
     """
     N = positions.shape[0]
-    # Matrix of displacement vectors (N, N, 3)
-    # diff[i, j] = positions[j] - positions[i]
-    diff = positions[np.newaxis, :, :] - positions[:, np.newaxis, :]
-    
-    # Square of distances (N, N)
-    dist_sq = np.sum(diff**2, axis=-1)
-    # Add softening and avoid division by zero
-    dist_inv3 = (dist_sq + softening**2)**(-1.5)
-    np.fill_diagonal(dist_inv3, 0) # No self-gravity
-    
-    # Gravity: a_i = sum_j (G * m_j * diff_{ij} / dist_{ij}^3)
-    # Result: (N, 3)
-    acceleration = G * np.sum(masses[np.newaxis, :, np.newaxis] * diff * dist_inv3[:, :, np.newaxis], axis=1)
+    if N < 2:
+        return np.zeros_like(positions)
 
-    # 2. 斥力 (Repulsion) と Damping
+    # 1. Gravitational Forces
+    # diff[i, j] is the vector from body i to body j
+    diff = positions[np.newaxis, :, :] - positions[:, np.newaxis, :]
+    dist_sq = np.sum(diff**2, axis=-1)
+    
+    # NaN/Zero protection using softening and epsilon
+    eps = 1e-12
+    # Gravity falls off as 1/r^2, vector direction adds 1/r, total 1/r^3
+    dist_inv3 = (dist_sq + softening**2 + eps)**(-1.5)
+    
+    # Mask out self-interaction
+    diag_indices = np.arange(N)
+    dist_inv3[diag_indices, diag_indices] = 0.0
+    
+    # Acceleration = sum_j (G * m_j * unit_vector_ij / dist_ij^2)
+    # weights: (N, N, 1) = G * m_j * (dist_ij^2 + soft^2)^(-1.5)
+    weights = (G * masses)[np.newaxis, :, np.newaxis] * dist_inv3[:, :, np.newaxis]
+    acceleration = np.sum(weights * diff, axis=1)
+
+    # 2. Repulsion and Damping (Collision handling)
     if radii is not None:
-        dist = np.sqrt(dist_sq)
-        # Avoid division by zero on diagonal
-        np.fill_diagonal(dist, 1.0)
-        
+        dist = np.sqrt(dist_sq + eps)
         thresholds = radii[np.newaxis, :] + radii[:, np.newaxis]
-        # Mask for pairs within contact
-        contact_mask = (dist < thresholds) & (dist > 1e-9)
-        np.fill_diagonal(contact_mask, False)
+        
+        # Only compute where bodies actually overlap
+        contact_mask = (dist < thresholds)
+        # Exclude self-collision
+        contact_mask[diag_indices, diag_indices] = False
 
         if np.any(contact_mask):
-            # Repulsion (r^-6)
-            ratio = thresholds / dist
-            repulsion_mag = (G * masses[np.newaxis, :]) * (ratio**6 - 1.0)
-            # Apply only where in contact
-            repulsion_mag = np.where(contact_mask, repulsion_mag, 0)
-            acceleration -= np.sum(repulsion_mag[:, :, np.newaxis] * (diff / dist[:, :, np.newaxis]), axis=1)
-
-            # Damping (relative velocity reduction)
-            rel_vel = velocities[np.newaxis, :, :] - velocities[:, np.newaxis, :]
-            # Dot product of relative velocity and displacement
-            vel_in_r_component = np.sum(rel_vel * diff, axis=-1) / (dist_sq + 1e-12)
+            # Ratio of (ideal distance / actual distance)
+            # Clip to prevent extreme values if centers are nearly identical
+            ratio = np.clip(thresholds / dist, 1.0, 10.0)
             
-            # Damp only when objects are moving toward each other (vel_in_r_component < 0)
-            damp_mask = contact_mask & (vel_in_r_component < 0)
-            damping_factor = 0.5 * (ratio - 1.0)
+            # Repulsion Magnitude (Power law r^-6 for stability)
+            # magnitude: (N, N)
+            repulsion_mag = (G * masses[np.newaxis, :]) * (ratio**6 - 1.0)
+            repulsion_mag = np.where(contact_mask, repulsion_mag, 0.0)
+            
+            # Add to acceleration (pointing away from collider)
+            # diff is (pos_j - pos_i), so -diff is (pos_i - pos_j)
+            # No need to divide by dist again if we normalize diff properly
+            unit_diff = diff / dist[:, :, np.newaxis]
+            acceleration -= np.sum(repulsion_mag[:, :, np.newaxis] * unit_diff, axis=1)
+
+            # Damping (Relative velocity reduction)
+            # rel_vel[i, j] = v_j - v_i
+            rel_vel = velocities[np.newaxis, :, :] - velocities[:, np.newaxis, :]
+            
+            # Projection of relative velocity onto the collision normal (diff)
+            # negative values mean they are moving towards each other
+            vel_projection = np.sum(rel_vel * unit_diff, axis=-1)
+            damp_mask = contact_mask & (vel_projection < 0)
+            
+            # Linear damping based on overlap depth
+            damping_coeff = 0.5 * (ratio - 1.0)
             damping_force = np.where(damp_mask[:, :, np.newaxis], 
-                                     damping_factor[:, :, np.newaxis] * rel_vel * masses[np.newaxis, :, np.newaxis], 
-                                     0)
+                                     damping_coeff[:, :, np.newaxis] * rel_vel * masses[np.newaxis, :, np.newaxis], 
+                                     0.0)
             acceleration -= np.sum(damping_force, axis=1)
                 
     return acceleration
@@ -81,6 +99,23 @@ def rk4_step(positions, velocities, masses, dt, G=1.0, softening=0.0, radii=None
     next_velocities = velocities + (dt / 6.0) * (a1 + 2*a2 + 2*a3 + a4)
     
     return next_positions, next_velocities
+
+def leapfrog_step(positions, velocities, masses, dt, G=1.0, softening=0.0, radii=None):
+    """
+    Leapfrog (Drift-Kick-Drift) integrator. 
+    Maintains energy conservation better than RK4 for orbital systems.
+    """
+    # 1. Half drift
+    p_half = positions + velocities * (dt * 0.5)
+    
+    # 2. Full kick (Acceleration at half positions)
+    acc = calculate_acceleration(p_half, velocities, masses, G, softening, radii)
+    v_next = velocities + acc * dt
+    
+    # 3. Half drift
+    p_next = p_half + v_next * (dt * 0.5)
+    
+    return p_next, v_next
 
 def rk45_adaptive_step(positions, velocities, masses, dt_frame, G=1.0, softening=0.0, collision_radii=None, base_substeps=10, timeout_s=5.0, max_v_safety=1000.0):
     """

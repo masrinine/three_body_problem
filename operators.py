@@ -61,13 +61,23 @@ class THREEBODY_OT_bake_simulation(bpy.types.Operator):
 
         # Physics
         try:
-            self._curr_p, self._curr_v = algo.rk45_adaptive_step(
-                self._curr_p, self._curr_v, self._masses, self._dt_frame,
-                self._G, self._softening, self._collision_radii,
-                base_substeps=self._substeps,
-                timeout_s=props.bake_limit_seconds,
-                max_v_safety=props.max_velocity_safety
-            )
+            if props.integrator_type == 'LEAPFROG':
+                # Leapfrog fixed substepping
+                dt_sub = self._dt_frame / self._substeps
+                for _ in range(self._substeps):
+                    self._curr_p, self._curr_v = algo.leapfrog_step(
+                        self._curr_p, self._curr_v, self._masses, dt_sub,
+                        self._G, self._softening, self._collision_radii
+                    )
+            else:
+                # Default RK45 Adaptive
+                self._curr_p, self._curr_v = algo.rk45_adaptive_step(
+                    self._curr_p, self._curr_v, self._masses, self._dt_frame,
+                    self._G, self._softening, self._collision_radii,
+                    base_substeps=self._substeps,
+                    timeout_s=props.bake_limit_seconds,
+                    max_v_safety=props.max_velocity_safety
+                )
         except algo.SimulationError as e:
             self.report({'ERROR'}, f"Physics Error: {str(e)}")
             self._error = str(e)
@@ -92,6 +102,19 @@ class THREEBODY_OT_bake_simulation(bpy.types.Operator):
         if (self._end_f - self._start_f) > 100000:
             self.report({'ERROR'}, "Frame range too large!")
             return {'CANCELLED'}
+
+        # --- Phase 2: Input Validation Guard ---
+        if not props.bodies:
+            self.report({'ERROR'}, "No celestial bodies defined")
+            return {'CANCELLED'}
+            
+        for i, b in enumerate(props.bodies):
+            if b.mass <= 0:
+                self.report({'ERROR'}, f"Body {i+1} has invalid mass (must be > 0)")
+                return {'CANCELLED'}
+            if np.any(np.isnan(b.initial_location)) or np.any(np.isinf(b.initial_location)):
+                self.report({'ERROR'}, f"Body {i+1} has invalid location")
+                return {'CANCELLED'}
 
         # Prepare physics data
         preset_key = props.simulation_model

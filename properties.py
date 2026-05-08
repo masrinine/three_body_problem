@@ -274,6 +274,16 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
         min=0.0
     )
 
+    integrator_type: bpy.props.EnumProperty(
+        name="Integrator",
+        description="Mathematical method to calculate physics steps",
+        items=[
+            ('RK45', "RK45 (Adaptive)", "Runge-Kutta adaptive step. Very accurate but can be slow if objects collide."),
+            ('LEAPFROG', "Leapfrog (Stable)", "Symplectic integrator. Maintains energy conservation over long periods. Best for circular orbits."),
+        ],
+        default='RK45'
+    )
+
     softening: bpy.props.FloatProperty(
         name="Softening",
         description="Prevents infinite force at zero distance and smooths close encounters",
