@@ -55,22 +55,29 @@ class THREEBODY_GGT_velocity_gizmo(GizmoGroup):
             if not is_valid_obj(obj):
                 continue
             
-            # 表示設定
+            # Visibility Settings
             if not getattr(props, "show_velocity_vectors", True):
                 continue
 
             loc = Vector(obj.location)
             vel = Vector(body_prop.velocity)
             
+            # Use visual scaling from properties
+            display_scale = getattr(props, "velocity_gizmo_scale", 1.0)
             v_len = vel.length
-            if v_len > 1e-4:
+            
+            if v_len > 1e-6:
                 gz.hide = False 
-                q = Vector((0, 0, 1)).rotation_difference(vel.normalized())
+                # Direction
+                direction = vel.normalized()
+                q = Vector((0, 0, 1)).rotation_difference(direction)
                 rotation_mat = q.to_matrix().to_4x4()
-                scale_mat = Matrix.Diagonal((1.0, 1.0, v_len, 1.0))
+                # Use display_scale for visual size
+                scale_mat = Matrix.Diagonal((display_scale, display_scale, v_len * display_scale, 1.0))
                 gz.matrix_basis = Matrix.Translation(loc) @ rotation_mat @ scale_mat
             else:
-                gz.hide = True
+                gz.hide = False # Show a small marker if velocity is zero
+                gz.matrix_basis = Matrix.Translation(loc) @ Matrix.Scale(0.1 * display_scale, 4)
 
     def draw_prepare(self, context):
         """Keep gizmos attached to objects and oriented to velocity"""
@@ -106,7 +113,13 @@ class THREEBODY_GGT_velocity_gizmo(GizmoGroup):
         return {'PASS_THROUGH'}
 
 def register():
-    bpy.utils.register_class(THREEBODY_GGT_velocity_gizmo)
+    try:
+        bpy.utils.register_class(THREEBODY_GGT_velocity_gizmo)
+    except ValueError:
+        pass
 
 def unregister():
-    bpy.utils.unregister_class(THREEBODY_GGT_velocity_gizmo)
+    try:
+        bpy.utils.unregister_class(THREEBODY_GGT_velocity_gizmo)
+    except RuntimeError:
+        pass

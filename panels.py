@@ -9,7 +9,11 @@ class VIEW3D_PT_three_body_main(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        props = scene.three_body_props
+        props = getattr(scene, "three_body_props", None)
+        
+        if props is None:
+            layout.label(text="Properties not registered properly.")
+            return
 
         # Quick Bake Section
         col = layout.column(align=True)
@@ -28,6 +32,17 @@ class VIEW3D_PT_three_body_main(bpy.types.Panel):
                 # Split long text if necessary
                 col = box.column()
                 col.scale_y = 0.8
+                
+                # Accuracy indicator (Hamiltonian Drift)
+                if props.is_baked:
+                    drift_val = props.energy_drift
+                    accuracy = max(0.0, (1.0 - drift_val) * 100.0)
+                    acc_col = col.column()
+                    acc_col.label(text=f"Physics Accuracy: {accuracy:.4f}%", icon='FUND')
+                    if accuracy < 99.0:
+                        acc_col.label(text="Warning: Low accuracy. Increase substeps.", icon='ERROR')
+                    col.separator()
+
                 words = props.last_simulation_report.split('. ')
                 for word in words:
                     col.label(text=word.strip())
@@ -41,45 +56,76 @@ class VIEW3D_PT_three_body_bodies(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        props = context.scene.three_body_props
+        props = getattr(context.scene, "three_body_props", None)
+        if props is None:
+            return
 
         # Setup Section
         box = layout.box()
-        box.label(text="Auto Setup", icon='MESH_UVSPHERE')
-        row = box.row(align=True)
-        row.prop(props, "setup_body_count", text="Count")
-        row.operator("three_body.setup_objects", text="Setup")
+        box.label(text="Auto Setup & Management", icon='MESH_UVSPHERE')
         
-        # New synchronization buttons
+        # Collection Sync Row
+        row = box.row(align=True)
+        row.prop(props, "sync_collection", text="")
+        row.operator("three_body.sync_collection", text="Sync From Collection", icon='FILE_REFRESH')
+        
+        # Spacer
+        box.separator()
+        
+        row = box.row(align=True)
+        row.prop(props, "setup_body_count", text="Quick Count")
+        row.operator("three_body.setup_objects", text="Auto Setup")
+        
+        # Header toolbar for bodies list
         layout.separator()
-        col = layout.column(align=True)
-        col.operator("three_body.capture_locations", icon='COPYDOWN')
-        col.operator("three_body.apply_locations", icon='PASTEDOWN')
+        
+        # --- Reliability Locking ---
+        # If baked, lock the body editing to prevent inconsistencies
+        body_col = layout.column()
+        if props.is_baked:
+            msg_box = body_col.box()
+            row = msg_box.row()
+            row.label(text="Simulation Baked: Inputs Locked", icon='LOCKED')
+            body_col.enabled = False
+        
+        row = body_col.row(align=True)
+        row.prop(props, "use_compact_list", text="", icon='PREFERENCES' if props.use_compact_list else 'USER')
+        row.label(text="Actions:" if not props.use_compact_list else "")
+        row.operator("three_body.capture_locations", icon='COPYDOWN', text="" if props.use_compact_list else "Capture")
+        row.operator("three_body.apply_locations", icon='PASTEDOWN', text="" if props.use_compact_list else "Apply")
+        row.operator("three_body.add_body", icon='ADD', text="" if props.use_compact_list else "Add Slot")
 
-        layout.separator()
+        body_col.separator()
 
-        # Dynamic List (N+1 implementation)
-        # We show all current bodies, plus an "Add" button at the end
+        # Dynamic List
         for i, body in enumerate(props.bodies):
-            box = layout.box()
-            row = box.row()
-            # Collapsible header
-            icon = 'TRIA_DOWN' if body.is_expanded else 'TRIA_RIGHT'
-            row.prop(body, "is_expanded", icon=icon, text="", emboss=False)
-            row.prop(body, "obj", text=f"Body {i+1}")
-            
-            # Remove button
-            op = row.operator("three_body.remove_body", text="", icon='X', emboss=False)
-            op.index = i
+            # Object check to prevent UI drawing from collapsing incorrectly if object is None
+            row_label = f"Body {i+1}"
+            if body.obj:
+                row_label = body.obj.name
+
+            if props.use_compact_list:
+                # Compact One-liner
+                row = body_col.row(align=True)
+                row.prop(body, "is_expanded", icon='TRIA_DOWN' if body.is_expanded else 'TRIA_RIGHT', text="", emboss=False)
+                row.prop(body, "obj", text="")
+                row.prop(body, "mass", text="M")
+                row.operator("three_body.remove_body", text="", icon='X', emboss=False).index = i
+            else:
+                # Standard Box View
+                box = body_col.box()
+                row = box.row()
+                row.prop(body, "is_expanded", icon='TRIA_DOWN' if body.is_expanded else 'TRIA_RIGHT', text="", emboss=False)
+                row.prop(body, "obj", text=row_label)
+                row.operator("three_body.remove_body", text="", icon='X', emboss=False).index = i
 
             if body.is_expanded:
-                col = box.column(align=True)
+                # Ensure detailed props are visible if expanded, even in compact mode
+                col = (body_col if props.use_compact_list else box).column(align=True)
+                if props.use_compact_list: col.separator()
                 col.prop(body, "mass")
                 col.prop(body, "initial_location")
                 col.prop(body, "velocity")
-
-        # The "+1" part: Always show a way to add a new slot
-        layout.operator("three_body.add_body", icon='ADD', text="Add Body Slot")
 
 class VIEW3D_PT_three_body_presets(bpy.types.Panel):
     bl_parent_id = "VIEW3D_PT_three_body_main"
@@ -90,7 +136,9 @@ class VIEW3D_PT_three_body_presets(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        props = context.scene.three_body_props
+        props = getattr(context.scene, "three_body_props", None)
+        if props is None:
+            return
         
         # Check if we have exactly 3 bodies (or close)
         if len(props.bodies) != 3:
@@ -109,7 +157,9 @@ class VIEW3D_PT_three_body_settings(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        props = context.scene.three_body_props
+        props = getattr(context.scene, "three_body_props", None)
+        if props is None:
+            return
 
         # Time Settings
         box = layout.box()
@@ -126,8 +176,10 @@ class VIEW3D_PT_three_body_settings(bpy.types.Panel):
         # Global Physical Constants
         box = layout.box()
         box.label(text="Global Physics", icon='WORLD')
+        box.prop(props, "integrator_type")
         box.prop(props, "simulation_scale")
         box.prop(props, "gravity_strength")
+        box.prop(props, "velocity_gizmo_scale")
 
         # Physics/Collision
         box = layout.box()
@@ -149,7 +201,8 @@ class THREEBODY_OT_add_body(bpy.types.Operator):
     bl_label = "Add Body"
     
     def execute(self, context):
-        context.scene.three_body_props.bodies.add()
+        body = context.scene.three_body_props.bodies.add()
+        body.is_expanded = False
         return {'FINISHED'}
 
 class THREEBODY_OT_remove_body(bpy.types.Operator):
@@ -172,17 +225,31 @@ class THREEBODY_OT_remove_body(bpy.types.Operator):
         return {'FINISHED'}
 
 def register():
-    bpy.utils.register_class(VIEW3D_PT_three_body_main)
-    bpy.utils.register_class(VIEW3D_PT_three_body_bodies)
-    bpy.utils.register_class(VIEW3D_PT_three_body_presets)
-    bpy.utils.register_class(VIEW3D_PT_three_body_settings)
-    bpy.utils.register_class(THREEBODY_OT_add_body)
-    bpy.utils.register_class(THREEBODY_OT_remove_body)
+    classes = (
+        VIEW3D_PT_three_body_main,
+        VIEW3D_PT_three_body_bodies,
+        VIEW3D_PT_three_body_presets,
+        VIEW3D_PT_three_body_settings,
+        THREEBODY_OT_add_body,
+        THREEBODY_OT_remove_body,
+    )
+    for cls in classes:
+        try:
+            bpy.utils.register_class(cls)
+        except ValueError:
+            pass
 
 def unregister():
-    bpy.utils.unregister_class(VIEW3D_PT_three_body_main)
-    bpy.utils.unregister_class(VIEW3D_PT_three_body_bodies)
-    bpy.utils.unregister_class(VIEW3D_PT_three_body_presets)
-    bpy.utils.unregister_class(VIEW3D_PT_three_body_settings)
-    bpy.utils.unregister_class(THREEBODY_OT_add_body)
-    bpy.utils.unregister_class(THREEBODY_OT_remove_body)
+    classes = (
+        THREEBODY_OT_remove_body,
+        THREEBODY_OT_add_body,
+        VIEW3D_PT_three_body_settings,
+        VIEW3D_PT_three_body_presets,
+        VIEW3D_PT_three_body_bodies,
+        VIEW3D_PT_three_body_main,
+    )
+    for cls in classes:
+        try:
+            bpy.utils.unregister_class(cls)
+        except RuntimeError:
+            pass

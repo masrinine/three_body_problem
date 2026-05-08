@@ -83,15 +83,23 @@ class THREEBODY_OT_bake_simulation(bpy.types.Operator):
             self._error = str(e)
             self._frame = self._end_f + 1 # Force end
 
+        # Update energy drift
+        from .algo import calculate_total_energy
+        current_energy = calculate_total_energy(self._curr_p, self._curr_v, self._masses, self._G, self._softening)
+        # Hamiltonian drift: abs((E_curr - E_init) / E_init)
+        if abs(self._initial_energy) > 1e-10:
+            drift = abs((current_energy - self._initial_energy) / self._initial_energy)
+        else:
+            drift = abs(current_energy - self._initial_energy)
+        
+        self._max_drift = max(self._max_drift, drift)
+
     def _get_stats_str(self):
-        return f"Max Speed: {self._stats['max_speed']:.2f}. Min Dist: {self._stats['min_dist']:.2f}."
+        return f"Max Speed: {self._stats['max_speed']:.2f}. Min Dist: {self._stats['min_dist']:.2f}. Efficiency: {(1.0 - self._max_drift)*100:.2f}%."
 
     def execute(self, context):
         props = context.scene.three_body_props
         scene = context.scene
-
-        if props.is_baking:
-            return {'CANCELLED'}
             
         # Initialization
         self._start_f = props.frame_start
@@ -130,9 +138,23 @@ class THREEBODY_OT_bake_simulation(bpy.types.Operator):
         else:
             G_base, soft_base, self._substeps = 1.0, 0.02, 10
 
-        self._G = G_base * (props.simulation_scale ** 3) * props.gravity_strength
-        self._softening = soft_base * props.simulation_scale * props.softening_multiplier
+        # --- Phase 1: Spatial Normalization ---
+        # 物理学的な整合性: 距離を S 倍にスケールアップした場合、
+        # 同じ時間経過で同じ軌道を描くためには G を S^3 倍にする必要があります (ケプラーの第3法則に関連)
+        # これにより Simulation Scale を変えても「速さ」の印象が一定に保たれます。
+        S = props.simulation_scale
+        self._G = G_base * (S ** 3) * props.gravity_strength
+        self._softening = soft_base * S * props.softening_multiplier
         
+        # 速度もシミュレーション空間（S倍された空間）に合わせてスケーリング
+        self._curr_v = self._curr_v * S
+        
+        # --- Energy Tracking Initialization ---
+        from .algo import calculate_total_energy
+        self._initial_energy = calculate_total_energy(self._curr_p, self._curr_v, self._masses, self._G, self._softening)
+        self._last_energy = self._initial_energy
+        self._max_drift = 0.0
+
         # Collision
         self._collision_radii = None
         if props.use_collision:
@@ -141,10 +163,15 @@ class THREEBODY_OT_bake_simulation(bpy.types.Operator):
                 r = 0.5
                 if props.auto_collision_radius and b.obj and b.obj.type == 'MESH':
                     if hasattr(b.obj.data, "vertices") and len(b.obj.data.vertices) > 0:
+                        # オブジェクトのスケールと行列を考慮した正確なワールド半径の計算
+                        # 最大頂点距離にオブジェクトのスケールを掛けて、現在の空間スケール(S)に合わせる
                         r = (max([v.co.length for v in b.obj.data.vertices])) * b.obj.scale[0]
                 else:
                     r = props.manual_collision_radius / 2.0
-                radii.append(max(r + props.radius_offset/2.0, 0.001))
+                
+                # ワールド空間での半径をシミュレーション空間(S倍)のスケールに正規化
+                scaled_r = max(r + props.radius_offset/2.0, 0.001)
+                radii.append(scaled_r)
             self._collision_radii = np.array(radii)
 
         from .properties import is_valid_obj
@@ -172,6 +199,8 @@ class THREEBODY_OT_bake_simulation(bpy.types.Operator):
         context.window_manager.event_timer_remove(self._timer)
         context.window_manager.progress_end()
         props.is_baking = False
+        props.is_baked = True
+        props.energy_drift = self._max_drift
         
         if self._error:
             props.last_simulation_report = f"ABORTED. {self._get_stats_str()} Error: {self._error}"
@@ -184,6 +213,7 @@ class THREEBODY_OT_bake_simulation(bpy.types.Operator):
         context.window_manager.event_timer_remove(self._timer)
         context.window_manager.progress_end()
         props.is_baking = False
+        return None
 
 class THREEBODY_OT_setup_objects(bpy.types.Operator):
     """Create UV spheres and assign them to the simulation slots, clearing existing ones first"""
@@ -220,6 +250,7 @@ class THREEBODY_OT_setup_objects(bpy.types.Operator):
             # 新しいスロットを追加して割り当て
             body_prop = props.bodies.add()
             body_prop.obj = obj
+            body_prop.is_expanded = False
             body_prop.initial_location = obj.location
             body_prop.velocity = vel
             
@@ -268,7 +299,9 @@ class THREEBODY_OT_unbake_simulation(bpy.types.Operator):
             self.report({'INFO'}, f"Cleared keyframes for {objects_cleared} objects.")
         else:
             self.report({'INFO'}, "No keyframes found to clear.")
-            
+        
+        props.is_baked = False
+        props.energy_drift = 0.0
         return {'FINISHED'}
 
 class THREEBODY_OT_capture_locations(bpy.types.Operator):
@@ -305,16 +338,69 @@ class THREEBODY_OT_apply_locations(bpy.types.Operator):
         self.report({'INFO'}, f"Moved {applied} objects to start locations.")
         return {'FINISHED'}
 
+class THREEBODY_OT_sync_collection(bpy.types.Operator):
+    """Sync body slots from the selected collection"""
+    bl_idname = "three_body.sync_collection"
+    bl_label = "Sync from Collection"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        props = context.scene.three_body_props
+        collection = props.sync_collection
+        
+        if not collection:
+            self.report({'ERROR'}, "No collection selected for sync.")
+            return {'CANCELLED'}
+        
+        # Filter for mesh objects in collection
+        objects = [obj for obj in collection.objects if obj.type == 'MESH']
+        
+        if not objects:
+            self.report({'WARNING'}, f"No mesh objects found in collection: {collection.name}")
+            return {'CANCELLED'}
+            
+        # Clear existing slots or just append? 
+        # Typically sync means "make the list match"
+        props.bodies.clear()
+        
+        for obj in objects:
+            body = props.bodies.add()
+            body.obj = obj
+            body.is_expanded = False
+            # Auto-capture current location
+            body.initial_location = obj.location
+            # Initialize with default mass
+            body.mass = 1.0
+
+        self.report({'INFO'}, f"Synced {len(objects)} bodies from '{collection.name}'")
+        return {'FINISHED'}
+
 def register():
-    bpy.utils.register_class(THREEBODY_OT_bake_simulation)
-    bpy.utils.register_class(THREEBODY_OT_unbake_simulation)
-    bpy.utils.register_class(THREEBODY_OT_setup_objects)
-    bpy.utils.register_class(THREEBODY_OT_capture_locations)
-    bpy.utils.register_class(THREEBODY_OT_apply_locations)
+    classes = (
+        THREEBODY_OT_bake_simulation,
+        THREEBODY_OT_unbake_simulation,
+        THREEBODY_OT_setup_objects,
+        THREEBODY_OT_capture_locations,
+        THREEBODY_OT_apply_locations,
+        THREEBODY_OT_sync_collection,
+    )
+    for cls in classes:
+        try:
+            bpy.utils.register_class(cls)
+        except ValueError:
+            pass
 
 def unregister():
-    bpy.utils.unregister_class(THREEBODY_OT_bake_simulation)
-    bpy.utils.unregister_class(THREEBODY_OT_unbake_simulation)
-    bpy.utils.unregister_class(THREEBODY_OT_setup_objects)
-    bpy.utils.unregister_class(THREEBODY_OT_capture_locations)
-    bpy.utils.unregister_class(THREEBODY_OT_apply_locations)
+    classes = (
+        THREEBODY_OT_apply_locations,
+        THREEBODY_OT_capture_locations,
+        THREEBODY_OT_setup_objects,
+        THREEBODY_OT_unbake_simulation,
+        THREEBODY_OT_bake_simulation,
+        THREEBODY_OT_sync_collection,
+    )
+    for cls in classes:
+        try:
+            bpy.utils.unregister_class(cls)
+        except RuntimeError:
+            pass

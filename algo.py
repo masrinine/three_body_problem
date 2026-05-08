@@ -82,6 +82,35 @@ def calculate_acceleration(positions, velocities, masses, G=1.0, softening=0.0, 
                 
     return acceleration
 
+def calculate_total_energy(positions, velocities, masses, G=1.0, softening=0.0):
+    """
+    Calculate total system energy (Kinetic + Potential).
+    Hamiltonian H = T + V
+    """
+    N = positions.shape[0]
+    if N < 2:
+        return 0.0
+    
+    # 1. Kinetic Energy T = sum(0.5 * m_i * v_i^2)
+    v_sq = np.sum(velocities**2, axis=-1)
+    T = 0.5 * np.sum(masses * v_sq)
+    
+    # 2. Potential Energy V = -sum_{i<j} (G * m_i * m_j / dist_ij)
+    # diff[i, j] is direction
+    diff = positions[np.newaxis, :, :] - positions[:, np.newaxis, :]
+    dist = np.sqrt(np.sum(diff**2, axis=-1) + softening**2 + 1e-12)
+    
+    # Potential weights
+    m_prod = masses[np.newaxis, :] * masses[:, np.newaxis]
+    V_matrix = -G * m_prod / dist
+    
+    # Only summed for i < j to avoid double counting and self-interaction
+    # np.triu_indices(N, 1) gets indices for upper triangle excluding diagonal
+    i_idx, j_idx = np.triu_indices(N, k=1)
+    V = np.sum(V_matrix[i_idx, j_idx])
+    
+    return T + V
+
 def rk4_step(positions, velocities, masses, dt, G=1.0, softening=0.0, radii=None):
     """
     4次ルンゲ＝クッタ法(RK4)を用いて、dt秒後の位置と速度を計算します。

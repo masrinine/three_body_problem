@@ -94,7 +94,7 @@ class BodyProperties(bpy.types.PropertyGroup):
     # Internal flag to identify expanded state in UI
     is_expanded: bpy.props.BoolProperty(
         name="Expanded",
-        default=True
+        default=False
     )
 
 def update_preset_values(self, context):
@@ -128,6 +128,20 @@ def update_preset_values(self, context):
         self["_updating_from_preset"] = False
 
 class ThreeBodyProperties(bpy.types.PropertyGroup):
+    use_compact_list: bpy.props.BoolProperty(
+        name="Compact List",
+        description="Show a more compact view of bodies in the side panel",
+        default=False
+    )
+
+    velocity_gizmo_scale: bpy.props.FloatProperty(
+        name="Gizmo Drawing Scale",
+        description="Scale of the velocity vectors in the viewport (visual only)",
+        default=1.0,
+        min=0.01,
+        max=50.0
+    )
+
     last_simulation_report: bpy.props.StringProperty(
         name="Last Simulation Report",
         default="No simulation baked yet."
@@ -172,6 +186,25 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
         name="Is Baking",
         default=False,
         description="Internal flag to prevent concurrent bakes or UI edits during bake"
+    )
+
+    is_baked: bpy.props.BoolProperty(
+        name="Is Baked",
+        default=False,
+        description="Flag set when simulation data is baked. Locks initial values to prevent inconsistencies"
+    )
+
+    energy_drift: bpy.props.FloatProperty(
+        name="Energy Drift (%)",
+        description="The percentage change in total system energy (Hamiltonian drift) during simulation. Lower is more accurate",
+        default=0.0,
+        precision=6
+    )
+
+    sync_collection: bpy.props.PointerProperty(
+        name="Sync Collection",
+        type=bpy.types.Collection,
+        description="Collection to sync mesh objects from"
     )
 
     bake_limit_seconds: bpy.props.FloatProperty(
@@ -315,12 +348,32 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
     )
 
 def register():
-    bpy.utils.register_class(BodyProperties)
-    bpy.utils.register_class(ThreeBodyProperties)
-    bpy.types.Scene.three_body_props = bpy.props.PointerProperty(type=ThreeBodyProperties)
+    try:
+        bpy.utils.register_class(BodyProperties)
+    except ValueError:
+        pass
+    
+    try:
+        bpy.utils.register_class(ThreeBodyProperties)
+    except ValueError:
+        pass
+    
+    if not hasattr(bpy.types.Scene, "three_body_props"):
+        bpy.types.Scene.three_body_props = bpy.props.PointerProperty(type=ThreeBodyProperties)
 
 def unregister():
-    del bpy.types.Scene.three_body_props
-    bpy.utils.unregister_class(ThreeBodyProperties)
-    bpy.utils.unregister_class(BodyProperties)
+    if hasattr(bpy.types.Scene, "three_body_props"):
+        del bpy.types.Scene.three_body_props
+    
+    try:
+        bpy.utils.unregister_class(ThreeBodyProperties)
+    except RuntimeError:
+        pass
+        
+    try:
+        bpy.utils.unregister_class(BodyProperties)
+    except RuntimeError:
+        pass
+    if hasattr(bpy.types, "BodyProperties"):
+        bpy.utils.unregister_class(BodyProperties)
 
