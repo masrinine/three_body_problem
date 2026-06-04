@@ -107,7 +107,8 @@ class VIEW3D_PT_three_body_bodies(bpy.types.Panel):
             if props.use_compact_list:
                 # Compact One-liner
                 row = body_col.row(align=True)
-                row.prop(body, "is_expanded", icon='TRIA_DOWN' if body.is_expanded else 'TRIA_RIGHT', text="", emboss=False)
+                # 使用するプロパティを 'is_expanded' に固定し、アイコンも明示的に指定
+                row.prop(body, "is_expanded", icon='TRIA_DOWN' if body.is_expanded else 'TRIA_RIGHT', text="", icon_only=True, emboss=False)
                 row.prop(body, "obj", text="")
                 row.prop(body, "mass", text="M")
                 row.operator("three_body.remove_body", text="", icon='X', emboss=False).index = i
@@ -115,7 +116,7 @@ class VIEW3D_PT_three_body_bodies(bpy.types.Panel):
                 # Standard Box View
                 box = body_col.box()
                 row = box.row()
-                row.prop(body, "is_expanded", icon='TRIA_DOWN' if body.is_expanded else 'TRIA_RIGHT', text="", emboss=False)
+                row.prop(body, "is_expanded", icon='TRIA_DOWN' if body.is_expanded else 'TRIA_RIGHT', text="", icon_only=True, emboss=False)
                 row.prop(body, "obj", text=row_label)
                 row.operator("three_body.remove_body", text="", icon='X', emboss=False).index = i
 
