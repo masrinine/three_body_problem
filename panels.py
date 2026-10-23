@@ -17,8 +17,13 @@ class VIEW3D_PT_three_body_main(bpy.types.Panel):
 
         # Quick Bake Section
         col = layout.column(align=True)
-        col.operator("three_body.bake_simulation", icon='PLAY', text="Bake All")
+        bake_row = col.row(align=True)
+        bake_row.enabled = not props.is_baking and not props.is_baked
+        bake_row.operator("three_body.bake_simulation", icon='PLAY', text="Bake All")
         col.operator("three_body.unbake_simulation", icon='X', text="Unbake All")
+
+        if props.is_baking:
+            layout.label(text="Baking in progress...", icon='TIME')
         
         # Report Section
         if props.last_simulation_report:
@@ -60,6 +65,15 @@ class VIEW3D_PT_three_body_bodies(bpy.types.Panel):
         if props is None:
             return
 
+        if props.is_baking:
+            layout.label(text="Baking in progress...", icon='TIME')
+            layout.enabled = False
+            return
+        if props.is_baked:
+            layout.label(text="Simulation baked. Unbake to edit the bodies.", icon='LOCKED')
+            layout.enabled = False
+            return
+
         # Setup Section
         box = layout.box()
         box.label(text="Auto Setup & Management", icon='MESH_UVSPHERE')
@@ -79,14 +93,7 @@ class VIEW3D_PT_three_body_bodies(bpy.types.Panel):
         # Header toolbar for bodies list
         layout.separator()
         
-        # --- Reliability Locking ---
-        # If baked, lock the body editing to prevent inconsistencies
         body_col = layout.column()
-        if props.is_baked:
-            msg_box = body_col.box()
-            row = msg_box.row()
-            row.label(text="Simulation Baked: Inputs Locked", icon='LOCKED')
-            body_col.enabled = False
         
         row = body_col.row(align=True)
         row.prop(props, "use_compact_list", text="", icon='PREFERENCES' if props.use_compact_list else 'USER')
@@ -140,7 +147,16 @@ class VIEW3D_PT_three_body_presets(bpy.types.Panel):
         props = getattr(context.scene, "three_body_props", None)
         if props is None:
             return
-        
+
+        if props.is_baking:
+            layout.label(text="Baking in progress...", icon='TIME')
+            layout.enabled = False
+            return
+        if props.is_baked:
+            layout.label(text="Preset locked. Unbake to change it.", icon='LOCKED')
+            layout.enabled = False
+            return
+
         # Check if we have exactly 3 bodies (or close)
         if len(props.bodies) != 3:
             layout.label(text="Presets require exactly 3 bodies", icon='ERROR')
@@ -160,6 +176,15 @@ class VIEW3D_PT_three_body_settings(bpy.types.Panel):
         layout = self.layout
         props = getattr(context.scene, "three_body_props", None)
         if props is None:
+            return
+
+        if props.is_baking:
+            layout.label(text="Baking in progress...", icon='TIME')
+            layout.enabled = False
+            return
+        if props.is_baked:
+            layout.label(text="Settings locked. Unbake to change them.", icon='LOCKED')
+            layout.enabled = False
             return
 
         # Time Settings

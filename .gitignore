@@ -120,6 +120,17 @@ Adobe\ After\ Effects\ Auto-Save/
 
 # Projects/Local folders
 test_folder/
+
+# --- Test artifacts / local manual tests (generated, do not commit) ---
+# The automated regression tests themselves ARE committed:
+#   tests/test_physics.py   (headless, numpy-only)
+#   tests/blender_test.py   (headless Blender integration)
+# Everything below is generated output or local manual-test scratch, so it is
+# intentionally kept out of version control.
+tests/output/
+tests/artifacts/
+tests/reports/
+tests/manual/
 #uv.lock
 
 # poetry

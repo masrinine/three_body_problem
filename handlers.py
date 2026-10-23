@@ -60,9 +60,12 @@ def sync_viewport_to_sidebar(scene):
 
 @persistent
 def cleanup_on_load(scene):
-    """File preservation safety: Reset internal flags"""
+    """File preservation safety: reset internal flags"""
     if hasattr(scene, "three_body_props"):
-        scene.three_body_props.is_baking = False
+        props = scene.three_body_props
+        props.is_baking = False
+        if "_last_simulation_scale" not in props:
+            props["_last_simulation_scale"] = props.simulation_scale
 
 def register():
     # Depsgraph handler for real-time sync

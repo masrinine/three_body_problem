@@ -6,8 +6,8 @@ Calculate three-body-problem in Blender.
 bl_info = {
     "name": "Three Body Problem",
     "author": "masrinine",
-    "version": (1, 0, 0),
-    "blender": (3, 0, 0),
+    "version": (1, 1, 0),
+    "blender": (5, 2, 0),
     "location": "View3D > Sidebar > Three Body",
     "description": "Calculate three-body-problem in Blender",
     "category": "Physics",

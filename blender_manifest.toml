@@ -1,0 +1,32 @@
+schema_version = "1.0.0"
+
+id = "three_body_problem"
+version = "1.1.0"
+name = "Three Body Problem"
+tagline = "Simulate and bake gravitational three-body systems"
+maintainer = "masrinine"
+type = "add-on"
+
+# Blender 5.2 LTS or newer. This add-on uses slotted actions (Action.fcurves was
+# removed in 5.2) and is not tested on older releases.
+blender_version_min = "5.2.0"
+
+# License is decided in the final task in TASKS.md; MIT is the current default.
+license = ["SPDX:MIT"]
+
+tags = ["Physics", "Animation"]
+
+[build]
+# Explicit list replaces the default patterns, so the defaults are repeated here.
+paths_exclude_pattern = [
+  "__pycache__/",
+  "/.git/",
+  "/.venv/",
+  "/test_folder/",
+  "/tests/",
+  "/tools/",
+  "/dist/",
+  "/AGENTS.md",
+  "/TASKS.md",
+  "/*.zip",
+]

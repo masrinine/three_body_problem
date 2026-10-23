@@ -1,11 +1,13 @@
 import numpy as np
 import time
+from dataclasses import dataclass
+from typing import Callable, Iterator, Optional
 
 class SimulationError(Exception):
     """Base exception for simulation safety triggers"""
     pass
 
-class TimeoutError(SimulationError):
+class SimulationTimeout(SimulationError):
     pass
 
 class StabilityError(SimulationError):
@@ -162,7 +164,7 @@ def rk45_adaptive_step(positions, velocities, masses, dt_frame, G=1.0, softening
     while t_spent < dt_frame:
         # Time-out Check
         if time.time() - start_time > timeout_s:
-            raise TimeoutError(f"Simulation frame exceeded {timeout_s}s limit.")
+            raise SimulationTimeout(f"Simulation frame exceeded {timeout_s}s limit.")
 
         if t_spent + h > dt_frame:
             h = dt_frame - t_spent
@@ -201,3 +203,130 @@ def rk45_adaptive_step(positions, velocities, masses, dt_frame, G=1.0, softening
         t_spent += h
         
     return curr_p, curr_v
+
+
+@dataclass
+class FrameState:
+    """State of the system at a baked frame.
+
+    ``max_energy_drift`` is the cumulative worst-case fractional Hamiltonian
+    drift since the start of the simulation (0.01 means 1%).
+    """
+    frame: int
+    positions: np.ndarray
+    velocities: np.ndarray
+    max_speed: float
+    min_dist: float
+    max_energy_drift: float
+
+
+def advance_frame(positions, velocities, masses, dt_frame, G=1.0, softening=0.0,
+                  collision_radii=None, integrator='RK45', substeps=10,
+                  timeout_s=5.0, max_v_safety=1000.0):
+    """Advance the system by one frame using the selected integrator."""
+    if integrator == 'LEAPFROG':
+        start_time = time.time()
+        steps = max(int(substeps), 1)
+        dt_sub = dt_frame / steps
+        for _ in range(steps):
+            positions, velocities = leapfrog_step(
+                positions, velocities, masses, dt_sub, G, softening, collision_radii
+            )
+            if time.time() - start_time > timeout_s:
+                raise SimulationTimeout(f"Simulation frame exceeded {timeout_s}s limit.")
+    elif integrator == 'RK45':
+        positions, velocities = rk45_adaptive_step(
+            positions, velocities, masses, dt_frame, G, softening, collision_radii,
+            base_substeps=substeps, timeout_s=timeout_s, max_v_safety=max_v_safety
+        )
+    else:
+        raise ValueError(f"Unknown integrator: {integrator!r}")
+
+    if not np.all(np.isfinite(positions)) or not np.all(np.isfinite(velocities)):
+        raise StabilityError("Simulation produced non-finite values.")
+    if np.max(np.linalg.norm(velocities, axis=1)) > max_v_safety:
+        raise StabilityError(
+            f"A body exceeded the speed limit ({max_v_safety}). Simulation aborted for stability."
+        )
+    return positions, velocities
+
+
+def simulate_frames(masses, positions, velocities, *, start_frame, end_frame,
+                    fps=24, time_scale=1.0, G=1.0, softening=0.0,
+                    collision_radii=None, integrator='RK45', substeps=10,
+                    timeout_s=5.0, max_v_safety=1000.0,
+                    cancel: Optional[Callable[[], bool]] = None) -> Iterator[FrameState]:
+    """Yield one :class:`FrameState` per frame, starting with the initial state.
+
+    This is the bpy-free simulation core used by both the modal operator and
+    headless tests. The first frame is the initial state; each later frame is
+    integrated from the previous one.
+    """
+    masses = np.asarray(masses, dtype=float)
+    positions = np.asarray(positions, dtype=float)
+    velocities = np.asarray(velocities, dtype=float)
+
+    if masses.ndim != 1 or masses.size == 0:
+        raise ValueError("masses must be a non-empty 1D array")
+    n = masses.size
+    if positions.shape != (n, 3) or velocities.shape != (n, 3):
+        raise ValueError("positions and velocities must have shape (n, 3)")
+    if not np.all(np.isfinite(masses)) or np.any(masses <= 0):
+        raise ValueError("masses must be finite and positive")
+    if not np.all(np.isfinite(positions)) or not np.all(np.isfinite(velocities)):
+        raise ValueError("positions and velocities must be finite")
+    if int(end_frame) < int(start_frame):
+        raise ValueError("end_frame must be greater than or equal to start_frame")
+    if int(fps) <= 0:
+        raise ValueError("fps must be positive")
+    if float(time_scale) < 0:
+        raise ValueError("time_scale must be zero or positive")
+    if int(substeps) < 1:
+        raise ValueError("substeps must be at least 1")
+
+    start_frame = int(start_frame)
+    end_frame = int(end_frame)
+    dt_frame = (1.0 / int(fps)) * float(time_scale)
+
+    current_p = positions.copy()
+    current_v = velocities.copy()
+    initial_energy = calculate_total_energy(current_p, current_v, masses, G, softening)
+    max_speed = 0.0
+    min_dist = float('inf')
+    max_drift = 0.0
+
+    for frame in range(start_frame, end_frame + 1):
+        if cancel is not None and cancel():
+            return
+
+        if frame > start_frame:
+            current_p, current_v = advance_frame(
+                current_p, current_v, masses, dt_frame, G, softening,
+                collision_radii, integrator, substeps, timeout_s, max_v_safety
+            )
+
+        speeds = np.linalg.norm(current_v, axis=1)
+        max_speed = max(max_speed, float(np.max(speeds)))
+
+        if n > 1:
+            diff = current_p[:, np.newaxis, :] - current_p[np.newaxis, :, :]
+            dists = np.linalg.norm(diff, axis=-1)
+            np.fill_diagonal(dists, float('inf'))
+            min_dist = min(min_dist, float(np.min(dists)))
+
+        current_energy = calculate_total_energy(current_p, current_v, masses, G, softening)
+        if abs(initial_energy) > 1e-10:
+            drift = abs((current_energy - initial_energy) / initial_energy)
+        else:
+            drift = abs(current_energy - initial_energy)
+        max_drift = max(max_drift, drift)
+
+        yield FrameState(
+            frame=frame,
+            positions=current_p.copy(),
+            velocities=current_v.copy(),
+            max_speed=max_speed,
+            min_dist=min_dist,
+            max_energy_drift=max_drift,
+        )
+

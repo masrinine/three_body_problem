@@ -21,6 +21,36 @@ def update_location_to_viewport(self, context):
         self.obj.location = self.initial_location
     update_custom_on_edit(self, context)
 
+def update_simulation_scale(self, context):
+    """Keep the normalized system shape when Simulation Scale changes.
+
+    Presets are applied as ``position * S`` / ``velocity * S`` and the bake uses
+    ``G * S^3``. Rescaling the stored state by the same ratio preserves the
+    trajectory shape for both presets and custom systems.
+    """
+    if self.get("_updating_from_preset", False):
+        return
+
+    new_scale = float(self.simulation_scale)
+    old_scale = self.get("_last_simulation_scale", None)
+    if new_scale <= 0:
+        return
+    if old_scale is None or old_scale <= 0:
+        self["_last_simulation_scale"] = new_scale
+        return
+    if abs(new_scale - float(old_scale)) < 1e-9:
+        return
+
+    ratio = new_scale / float(old_scale)
+    self["_updating_from_preset"] = True
+    try:
+        for body in self.bodies:
+            body.initial_location = tuple(float(x) * ratio for x in body.initial_location)
+            body.velocity = tuple(float(x) * ratio for x in body.velocity)
+    finally:
+        self["_updating_from_preset"] = False
+    self["_last_simulation_scale"] = new_scale
+
 def is_valid_obj(obj):
     """Utility to check if a Blender object is valid and currently in the scene."""
     if not obj:
@@ -68,7 +98,7 @@ class BodyProperties(bpy.types.PropertyGroup):
     )
     initial_location: bpy.props.FloatVectorProperty(
         name="Initial Location",
-        description="Initial location to start simulation from",
+        description="Initial location in world units (scaled by Simulation Scale when a preset is applied)",
         subtype='TRANSLATION',
         unit='LENGTH',
         precision=3,
@@ -77,18 +107,12 @@ class BodyProperties(bpy.types.PropertyGroup):
     )
     velocity: bpy.props.FloatVectorProperty(
         name="Initial Velocity",
-        description="Initial velocity of the body",
+        description="Initial velocity in world units (scaled by Simulation Scale when a preset is applied)",
         subtype='XYZ',
         unit='VELOCITY',
         precision=3,
         default=(0.0, 0.0, 0.0),
         update=update_custom_on_edit
-    )
-    
-    # Internal property to store calculated collision radius
-    collision_radius: bpy.props.FloatProperty(
-        name="Collision Radius",
-        default=0.0
     )
     
     # Internal flag to identify expanded state in UI
@@ -120,8 +144,9 @@ def update_preset_values(self, context):
             
         for i in range(3):
             body = self.bodies[i]
-            apply_body_preset(body, p.masses[i], p.positions[i] * S, p.velocities[i])
-            
+            apply_body_preset(body, p.masses[i], p.positions[i] * S, p.velocities[i] * S)
+
+        self["_last_simulation_scale"] = S
         # If there are more than 3 bodies, we don't necessarily remove them 
         # but the preset only applies to the first 3.
     finally:
@@ -256,7 +281,7 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
 
     softening_multiplier: bpy.props.FloatProperty(
         name="Softening Multiplier",
-        description="Increases 'softening' to prevent particles from flying away (0 = accuracy, high = stability)",
+        description="Multiplies the preset softening length (which is already scaled by Simulation Scale)",
         default=3.0,
         min=0.0,
         max=10.0
@@ -264,16 +289,10 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
 
     simulation_scale: bpy.props.FloatProperty(
         name="Simulation Scale",
-        description="Physical scale multiplier for the simulation (default: 5.0)",
+        description="Multiplies initial positions/velocities (G scales with the cube of this value)",
         default=5.0,
-        min=0.001
-    )
-
-    gravitational_constant: bpy.props.FloatProperty(
-        name="Gravitational Constant (G)",
-        description="Newton's gravitational constant",
-        default=1.0,
-        min=0.0
+        min=0.001,
+        update=update_simulation_scale
     )
 
     # Collision Settings
@@ -289,13 +308,13 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
     )
     manual_collision_radius: bpy.props.FloatProperty(
         name="Manual Radius",
-        description="Manual distance for collision detection",
+        description="World-space collision radius (not diameter)",
         default=0.5,
         min=0.001
     )
     radius_offset: bpy.props.FloatProperty(
         name="Radius Offset",
-        description="Fine-tuning for collision radius (Applied to both auto and manual)",
+        description="Added to the collision radius in world units",
         default=0.0,
         precision=3
     )
@@ -315,30 +334,6 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
             ('LEAPFROG', "Leapfrog (Stable)", "Symplectic integrator. Maintains energy conservation over long periods. Best for circular orbits."),
         ],
         default='RK45'
-    )
-
-    softening: bpy.props.FloatProperty(
-        name="Softening",
-        description="Prevents infinite force at zero distance and smooths close encounters",
-        default=0.02,
-        min=0.0
-    )
-
-    sim_method: bpy.props.EnumProperty(
-        name="Simulation Method",
-        description="Choose how to calculate the simulation",
-        items=[
-            ('REALTIME', "Real-time", "Simulate while playing back"),
-            ('BAKE', "Bake to Cache", "Pre-calculate and save to files"),
-        ],
-        default='REALTIME'
-    )
-
-    cache_path: bpy.props.StringProperty(
-        name="Cache Path",
-        description="Folder to store simulation cache",
-        default="/tmp/",
-        subtype='DIR_PATH'
     )
 
     show_velocity_vectors: bpy.props.BoolProperty(
@@ -361,6 +356,11 @@ def register():
     if not hasattr(bpy.types.Scene, "three_body_props"):
         bpy.types.Scene.three_body_props = bpy.props.PointerProperty(type=ThreeBodyProperties)
 
+    for scene in bpy.data.scenes:
+        props = getattr(scene, "three_body_props", None)
+        if props is not None and "_last_simulation_scale" not in props:
+            props["_last_simulation_scale"] = props.simulation_scale
+
 def unregister():
     if hasattr(bpy.types.Scene, "three_body_props"):
         del bpy.types.Scene.three_body_props
@@ -374,6 +374,4 @@ def unregister():
         bpy.utils.unregister_class(BodyProperties)
     except RuntimeError:
         pass
-    if hasattr(bpy.types, "BodyProperties"):
-        bpy.utils.unregister_class(BodyProperties)
 
