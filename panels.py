@@ -205,7 +205,6 @@ class VIEW3D_PT_three_body_settings(bpy.types.Panel):
         box.prop(props, "integrator_type")
         box.prop(props, "simulation_scale")
         box.prop(props, "gravity_strength")
-        box.prop(props, "velocity_gizmo_scale")
 
         # Physics/Collision
         box = layout.box()
@@ -220,6 +219,27 @@ class VIEW3D_PT_three_body_settings(bpy.types.Panel):
             if not props.auto_collision_radius:
                 col.prop(props, "manual_collision_radius")
             col.prop(props, "radius_offset")
+
+class VIEW3D_PT_three_body_display(bpy.types.Panel):
+    bl_parent_id = "VIEW3D_PT_three_body_main"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_label = "Viewport Display"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        props = getattr(context.scene, "three_body_props", None)
+        if props is None:
+            return
+
+        # Display-only settings stay editable after a bake: they never touch the
+        # simulated state, so there is no reason to lock them.
+        layout.prop(props, "show_velocity_vectors")
+        col = layout.column()
+        col.enabled = props.show_velocity_vectors
+        col.prop(props, "velocity_gizmo_scale")
+        layout.label(text="Initial velocity of each body", icon='INFO')
 
 class THREEBODY_OT_add_body(bpy.types.Operator):
     """Add a new body slot"""
@@ -256,6 +276,7 @@ def register():
         VIEW3D_PT_three_body_bodies,
         VIEW3D_PT_three_body_presets,
         VIEW3D_PT_three_body_settings,
+        VIEW3D_PT_three_body_display,
         THREEBODY_OT_add_body,
         THREEBODY_OT_remove_body,
     )
@@ -269,6 +290,7 @@ def unregister():
     classes = (
         THREEBODY_OT_remove_body,
         THREEBODY_OT_add_body,
+        VIEW3D_PT_three_body_display,
         VIEW3D_PT_three_body_settings,
         VIEW3D_PT_three_body_presets,
         VIEW3D_PT_three_body_bodies,

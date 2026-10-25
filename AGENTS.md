@@ -13,7 +13,7 @@ are Japanese.
   `bl_info["blender"]` and the manifest both require `5.2.0`.
 - Syntax check (any Python 3.11+; does not import `bpy`):
   ```powershell
-  python -m py_compile __init__.py algo.py bake.py gizmos.py handlers.py keyframes.py operators.py panels.py presets.py properties.py visualization.py
+  python -m py_compile __init__.py algo.py bake.py gizmos.py handlers.py keyframes.py operators.py panels.py presets.py properties.py
   ```
 - Physics tests (plain Python + numpy, loaded by path — no `bpy`):
   ```powershell
@@ -37,6 +37,10 @@ are Japanese.
   python tools\build_addon.py
   & 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe' --command extension validate dist\three_body_problem-1.1.0-extension.zip
   ```
+- CI: `.github/workflows/ci.yml` runs `py_compile`, the bpy-free physics tests, and the
+  package build on every push, plus a cached Blender 5.2.2 job that runs the headless
+  integration tests and validates the extension. `COMPATIBILITY.md` holds the version matrix
+  and the manual release checklist.
 - Dev install: either install `dist\...-extension.zip` from Preferences > Get Extensions >
   Install from Disk, or copy/junction the repo to
   `%APPDATA%\Blender Foundation\Blender\5.2\scripts\addons\three_body_problem` and enable
@@ -69,16 +73,17 @@ are Japanese.
   `Radius Offset` is added at full strength, and there is no hidden `S` multiplication. This is
   the intended spec — do not "fix" it back to the old mixed units.
 - Bake sets location F-curves to `LINEAR` in `bake.finalize`; do not leave the default Bezier.
-- `visualization.py` and `gizmos.py` still both draw velocity arrows gated by
-  `show_velocity_vectors` (duplicates are expected; `TASKS.md` P1-10). The draw handler now
-  sets the `viewportSize`/`lineWidth` uniforms required by `POLYLINE_UNIFORM_COLOR`.
+- Velocity arrows are drawn by `gizmos.py` only; `visualization.py` (the duplicate GPU draw
+  handler) was removed in P1-10. Arrows start at `obj.matrix_world.translation` (world space),
+  are skipped for hidden objects and for zero velocity, and use `velocity_gizmo_scale`. The
+  `Viewport Display` panel stays editable after a bake because the display is visual only.
 - `test_folder/` contains large `.blend`/`.aep` fixtures and is gitignored. Never read, edit, or
   commit it. Ignore `__pycache__` (mixed 3.11/3.12 artifacts).
 
 ## Architecture map
 
-- `__init__.py` — `bl_info`; registration order is properties → operators → visualization →
-  gizmos → panels → handlers (reverse on unregister).
+- `__init__.py` — `bl_info`; registration order is properties → operators → gizmos → panels →
+  handlers (reverse on unregister).
 - `blender_manifest.toml` — extension metadata (Blender 5.2+, version 1.1.0, MIT placeholder).
 - `properties.py` — all persistent state hangs off `Scene.three_body_props`; `bodies` is a
   collection of `BodyProperties`. Editing mass/location/velocity switches `simulation_model` to
@@ -95,7 +100,8 @@ are Japanese.
   interpolation).
 - `operators.py` — modal bake (4 frames/tick, ESC cancel), unbake, setup spheres, capture/apply
   locations, sync collection. `add_body` / `remove_body` live in `panels.py`, not here.
-- `panels.py` — sidebar UI, including the `is_baked`/`is_baking` locks.
+- `panels.py` — sidebar UI, including the `is_baked`/`is_baking` locks and the
+  `Viewport Display` sub-panel, which is never locked because it only affects drawing.
 - `handlers.py` — depsgraph location sync (start frame only), `is_baking` reset and
   `_last_simulation_scale` init on file load.
 - Presets require exactly 3 bodies; `bake.build_context` enforces it. Custom systems accept any

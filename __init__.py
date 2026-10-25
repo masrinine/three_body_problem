@@ -3,6 +3,8 @@ Three Body Problem - Blender Addon
 Calculate three-body-problem in Blender.
 """
 
+import bpy
+
 bl_info = {
     "name": "Three Body Problem",
     "author": "masrinine",
@@ -17,15 +19,19 @@ bl_info = {
 from . import properties
 from . import panels
 from . import operators
-from . import visualization
 from . import gizmos
 from . import handlers
 
 def register():
     """Register addon classes and properties."""
+    if bpy.app.version < tuple(bl_info["blender"]):
+        raise RuntimeError(
+            "Three Body Problem requires Blender 5.2 or newer "
+            f"(running Blender {bpy.app.version_string})."
+        )
+
     properties.register()
     operators.register()
-    visualization.register()
     gizmos.register()
     panels.register()
     handlers.register()
@@ -36,7 +42,6 @@ def unregister():
     handlers.unregister()
     panels.unregister()
     gizmos.unregister()
-    visualization.unregister()
     operators.unregister()
     properties.unregister()
 

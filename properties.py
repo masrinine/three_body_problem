@@ -51,6 +51,21 @@ def update_simulation_scale(self, context):
         self["_updating_from_preset"] = False
     self["_last_simulation_scale"] = new_scale
 
+def _tag_view3d_redraw(self, context):
+    """Redraw every 3D Viewport so viewport-only settings apply immediately.
+
+    ``context`` (and ``context.screen``) can be None while a file loads or when
+    running headless, in which case there is nothing to redraw.
+    """
+    if context is None:
+        return
+    screen = getattr(context, "screen", None)
+    if screen is None:
+        return
+    for area in screen.areas:
+        if area.type == 'VIEW_3D':
+            area.tag_redraw()
+
 def is_valid_obj(obj):
     """Utility to check if a Blender object is valid and currently in the scene."""
     if not obj:
@@ -164,7 +179,8 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
         description="Scale of the velocity vectors in the viewport (visual only)",
         default=1.0,
         min=0.01,
-        max=50.0
+        max=50.0,
+        update=_tag_view3d_redraw
     )
 
     last_simulation_report: bpy.props.StringProperty(
@@ -338,8 +354,9 @@ class ThreeBodyProperties(bpy.types.PropertyGroup):
 
     show_velocity_vectors: bpy.props.BoolProperty(
         name="Show Velocity Vectors",
-        description="Visualize initial velocity vectors in the viewport",
-        default=True
+        description="Show each body's initial velocity as an arrow in the viewport",
+        default=True,
+        update=_tag_view3d_redraw
     )
 
 def register():

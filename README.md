@@ -6,6 +6,7 @@ Blender 上で複雑な三体問題（Three-Body Problem）の数値シミュレ
 
 - **Blender 5.2 LTS 以降**（スロット付きアクション API を使用するため、5.2 未満では動作しません）
 - 追加の Python パッケージは不要です（Blender 同梱の `numpy` のみを使用）
+- 対応バージョンの検証状況とリリースチェックリストは [COMPATIBILITY.md](COMPATIBILITY.md) を参照してください。
 
 ## インストール
 
@@ -52,6 +53,7 @@ Blender 上で複雑な三体問題（Three-Body Problem）の数値シミュレ
 
 ## Tips
 - **軌跡の表示**: Blender の `Motion Paths`（オブジェクトプロパティ > モーションパス）を有効にすると、美しい幾何学的な軌道を確認しやすくなります。
+- **速度ベクトルの表示**: サイドバーの `Viewport Display` で `Show Velocity Vectors` を切り替え、`Gizmo Drawing Scale` で矢印の長さを調整できます。この設定は表示専用のため、ベイク後でも変更できます。
 - **積分法の選択**: 円軌道など長時間の安定性が重要な場合は `Leapfrog`、近接遭遇が多い系では `RK45` が適しています。
 - **開発時のデバッグ**: VS Code の `Blender Development` 拡張機能を用い、アドオンのロード/リロードが可能です。
 
@@ -59,7 +61,7 @@ Blender 上で複雑な三体問題（Three-Body Problem）の数値シミュレ
 
 - 構文チェック:
   ```powershell
-  python -m py_compile __init__.py algo.py bake.py gizmos.py handlers.py keyframes.py operators.py panels.py presets.py properties.py visualization.py
+  python -m py_compile __init__.py algo.py bake.py gizmos.py handlers.py keyframes.py operators.py panels.py presets.py properties.py
   ```
 - 物理コアのテスト（`bpy` 不要、`.venv` の numpy を使用）:
   ```powershell

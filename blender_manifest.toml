@@ -21,6 +21,8 @@ tags = ["Physics", "Animation"]
 paths_exclude_pattern = [
   "__pycache__/",
   "/.git/",
+  "/.github/",
+  "/.gitignore",
   "/.venv/",
   "/test_folder/",
   "/tests/",
@@ -28,5 +30,6 @@ paths_exclude_pattern = [
   "/dist/",
   "/AGENTS.md",
   "/TASKS.md",
+  "/COMPATIBILITY.md",
   "/*.zip",
 ]

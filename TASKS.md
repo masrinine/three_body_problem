@@ -65,12 +65,17 @@ and no lost animation.
 
 ## P1 — required for a $5–10 product
 
-- [ ] **8. Compatibility matrix and CI**
-  - Confirm on every Blender release that the slotted-action helpers, the
-    `POLYLINE_UNIFORM_COLOR` uniforms, registration, and `bl_info` parsing still work. The
-    minimum is 5.2; older 4.x/3.x releases are explicitly out of scope.
-  - Add CI: `py_compile` + numpy physics tests on every push; optionally a downloaded-Blender
-    headless register/smoke job. Keep runtime code free of pip dependencies.
+- [x] **8. Compatibility matrix and CI**
+  - `COMPATIBILITY.md` documents 5.2.2 LTS as the verified baseline, 5.3/6.x as
+    expected-but-unverified, 4.x/3.x as unsupported, and a manual release checklist.
+    `register()` now raises a clear error when `bpy.app.version < (5, 2, 0)`.
+  - `.github/workflows/ci.yml` has two jobs:
+    - `python-tests`: `py_compile`, the bpy-free physics suite, and `tools/build_addon.py`,
+      with the zips uploaded as an artifact.
+    - `blender-tests`: downloads and caches Blender 5.2.2 Linux, installs the runtime
+      libraries, runs `tests/blender_test.py` headless, then validates the extension zip.
+  - Verified locally: YAML parses, the Blender download URL returns HTTP 200, and every CI
+    command passes on 5.2.2. The first remote run will confirm the Linux job.
 
 - [x] **9. Regression tests for the physics**
   - `tests/test_physics.py` covers all 9 presets for 250 frames, a <1% energy-drift budget,
@@ -79,20 +84,55 @@ and no lost animation.
   - Remaining (nice-to-have): a negative test that deliberately breaks the force law, and a
     Leapfrog-vs-RK45 parity check.
 
-- [ ] **10. Deduplicate and verify velocity visualization**
-  - `visualization.py` and `gizmos.py` both draw velocity arrows when `show_velocity_vectors`
-    is on; the draw handler now sets `viewportSize`/`lineWidth` for `POLYLINE_UNIFORM_COLOR`,
-    but the duplicate remains.
-  - Work: keep one renderer (gizmos are the interactive choice) or make them mutually
-    exclusive. Done when exactly one arrow per body, no GPU warnings, arrows follow the object.
+- [x] **10. Deduplicate and verify velocity visualization**
+  - `visualization.py` (the `POST_VIEW` draw handler) was deleted; `gizmos.py` is the single
+    renderer. `__init__.py`, the CI `py_compile` list, `README.md`, `AGENTS.md`, and
+    `COMPATIBILITY.md` no longer reference it.
+  - `gizmos.py` now starts each arrow at `obj.matrix_world.translation` (world space; the old
+    `obj.location` was parent space), skips hidden objects via `visible_get()`, draws nothing
+    for zero/degenerate velocity, grows the pool to 128, and `poll()` also requires
+    `show_velocity_vectors`.
+  - Added the `Viewport Display` sub-panel (`Show Velocity Vectors`, `Gizmo Drawing Scale`) that
+    stays editable while baked/baking; the scale was removed from `Simulation Settings`. Both
+    properties now tag 3D Viewports for redraw.
+  - Verified on 5.2.2: `py_compile`, the 12 bpy-free physics tests, 11 headless Blender tests
+    (including the world-space matrix, zero-velocity, visibility, and `poll()` checks), and
+    extension validate.
+  - Manual GUI check (scripted screenshots in `tests/output/gui_check/`, top orthographic view):
+    exactly one arrow per body with controlled orthogonal velocities; `scale 0.1/0.5/1/2`
+    changes the length; zero velocity and hidden objects draw no arrow; arrows follow objects
+    during a baked scrub (frames 1 vs 40), after parenting to a moved/rotated empty, and after
+    moving the objects; four bodies render four arrows; the `Viewport Display` panel draws and
+    stays enabled while baked; the Blender console shows no GPU/shader warnings.
 
-- [ ] **11. First-run UX and demo content**
-  - The default enum is `FIGURE_8`, but no preset state is applied at registration; assigning
-    objects (Auto Setup) flips the model to `CUSTOM`. There is no explicit "Apply Preset"
-    action and no demo scene.
-  - Work: add an explicit "Apply Preset" action (or apply on setup), a one-click demo scene with
-    camera/light/materials/backdrop, reset-to-defaults, and short tooltips. Consider motion paths
-    enabled by default in the demo.
+- [ ] **11. First-run UX and demo content** — **next task (start with 11a)**
+  - Verified problem (5.2.2): a fresh file reports `simulation_model = FIGURE_8` with 0 bodies,
+    and `Auto Setup` creates a collinear row at ±5 m with velocities of ±0.1 while flipping the
+    model to `CUSTOM` (assigning `BodyProperties.obj` triggers `update_custom_on_edit`). The
+    preset the UI advertises is never applied, and there is no way to re-apply one.
+  - **11a — Apply Preset and a sane Auto Setup (do first)**
+    - Add `three_body.apply_preset` (`{'REGISTER','UNDO'}`) and an `Apply Preset` button under
+      `Preset Model`. Apply `presets.PRESETS[model]` directly: the enum callback
+      `update_preset_values` early-returns on `CUSTOM` and creates empty slots, so it cannot be
+      reused as-is. Apply inside `_updating_from_preset` and sync `_last_simulation_scale`.
+    - `Auto Setup` applies the selected preset when it was a preset before setup and
+      `setup_body_count == 3`; keep the generated row when the model was `CUSTOM`.
+    - Refuse while baked/baking, with N ≠ 3, or with a missing object; report the reason.
+    - Keep the scale contract: positions/velocities × S and `G = G_base · S³`.
+  - **11b — one-click demo scene**
+    - `three_body.create_demo_scene` creates `Three Body Demo` in a new scene (the current scene
+      stays untouched): Figure-8, 3 shaded spheres, framed camera, key/fill lights, backdrop,
+      250 frames at 24 fps, motion paths on, and optionally pre-baked so Play works immediately.
+      Switch to it; reuse an existing demo scene instead of duplicating it.
+  - **11c — reset and copy polish**
+    - `three_body.reset_settings` (confirm dialog) restores `Scene.three_body_props` defaults
+      without deleting objects or silently reapplying a preset; short tooltips/hints; update
+      README and `COMPATIBILITY.md`.
+  - Acceptance: fresh file → Auto Setup → Figure-8 is applied and the enum stays `FIGURE_8`;
+    re-selecting a preset after an edit reapplies it; Apply is refused with a clear message in
+    the invalid states; the demo scene is one click, non-destructive, and idempotent; the scale
+    contract and N == 3 rule are covered by headless tests plus a GUI screenshot pass.
+  - Out of scope: user-saved presets (P2-17), caching, physics changes.
 
 - [ ] **12. Documentation and store assets**
   - README now documents Blender 5.2+, install, all 9 presets, bake/unbake, linear
@@ -137,4 +177,5 @@ and no lost animation.
 
 ## Suggested order
 
-8 → 9 → 10 → 11 → 12 → 13 → 14, then 15 → 16 → 17, with **18 (license) last**.
+8 → 9 → 10 → 11a → 11b → 11c → 12 → 13 → 14, then 15 → 16 → 17,
+with **18 (license) last**.
