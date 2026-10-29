@@ -1,6 +1,12 @@
+import bmesh
 import bpy
 
-from . import algo, bake, keyframes
+from . import algo, bake, keyframes, presets
+from .properties import (
+    apply_preset_to_bodies,
+    is_valid_obj,
+    reset_simulation_settings,
+)
 
 
 class THREEBODY_OT_bake_simulation(bpy.types.Operator):
@@ -116,6 +122,294 @@ class THREEBODY_OT_bake_simulation(bpy.types.Operator):
         self._finish(context, status="CANCELLED")
 
 
+class THREEBODY_OT_apply_preset(bpy.types.Operator):
+    """Apply the selected preset to the three bodies"""
+
+    bl_idname = "three_body.apply_preset"
+    bl_label = "Apply Preset"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        props = context.scene.three_body_props
+        if props.is_baking or props.is_baked:
+            return False
+        if props.simulation_model == 'CUSTOM':
+            return False
+        if len(props.bodies) != 3:
+            return False
+        return all(is_valid_obj(body.obj) for body in props.bodies)
+
+    def execute(self, context):
+        props = context.scene.three_body_props
+        preset = presets.PRESETS.get(props.simulation_model)
+        if preset is None:
+            self.report({'ERROR'}, "Select a preset before applying it.")
+            return {'CANCELLED'}
+        if not apply_preset_to_bodies(props, props.simulation_model):
+            self.report(
+                {'ERROR'},
+                "Applying a preset requires exactly 3 bodies with objects.",
+            )
+            return {'CANCELLED'}
+        self.report({'INFO'}, f"Applied preset: {preset.name}")
+        return {'FINISHED'}
+
+
+class THREEBODY_OT_reset_settings(bpy.types.Operator):
+    """Reset simulation and display settings to defaults (keeps bodies and preset)"""
+
+    bl_idname = "three_body.reset_settings"
+    bl_label = "Reset Settings"
+    # Resetting changes body scale through the simulation_scale callback; leave
+    # this out of the undo stack so scale and _last_simulation_scale cannot get
+    # out of sync through a partial undo.
+    bl_options = {'REGISTER'}
+
+    @classmethod
+    def poll(cls, context):
+        # Keep this available for scripts so execute/invoke can explain why a
+        # baked scene must be unbaked first; the panel disables the button.
+        return getattr(context.scene, "three_body_props", None) is not None
+
+    def invoke(self, context, event):
+        props = context.scene.three_body_props
+        if props.is_baking or props.is_baked:
+            self.report({'ERROR'}, "Unbake before resetting settings.")
+            return {'CANCELLED'}
+        return context.window_manager.invoke_props_dialog(self, width=380)
+
+    def draw(self, context):
+        layout = self.layout
+        col = layout.column(align=True)
+        col.label(text="Reset all simulation and display settings?", icon='QUESTION')
+        col.label(text="Bodies, their objects, and the selected preset are kept.")
+        col.label(text="This cannot be undone.")
+
+    def execute(self, context):
+        props = context.scene.three_body_props
+        if props.is_baking or props.is_baked:
+            self.report({'ERROR'}, "Unbake before resetting settings.")
+            return {'CANCELLED'}
+
+        reset_simulation_settings(props)
+        self.report(
+            {'INFO'},
+            "Simulation settings reset to defaults (bodies and preset kept).",
+        )
+        return {'FINISHED'}
+
+
+DEMO_SCENE_NAME = "Three Body Demo"
+DEMO_BODY_COLORS = (
+    ("Body_1", (1.0, 0.30, 0.10)),
+    ("Body_2", (0.15, 0.45, 1.0)),
+    ("Body_3", (0.10, 0.85, 0.55)),
+)
+
+
+def _demo_material(name, color, *, roughness=0.35, metallic=0.0, emission=0.0):
+    material = bpy.data.materials.new(name)
+    material.use_nodes = True
+    material.diffuse_color = (*color, 1.0)
+    bsdf = material.node_tree.nodes.get("Principled BSDF")
+    if bsdf is not None:
+        rgba = (*color, 1.0)
+        bsdf.inputs["Base Color"].default_value = rgba
+        bsdf.inputs["Roughness"].default_value = roughness
+        bsdf.inputs["Metallic"].default_value = metallic
+        if emission > 0.0:
+            emission_color = bsdf.inputs.get("Emission Color")
+            if emission_color is not None:
+                emission_color.default_value = rgba
+            emission_strength = bsdf.inputs.get("Emission Strength")
+            if emission_strength is not None:
+                emission_strength.default_value = emission
+    return material
+
+
+def _demo_sphere_mesh(name, radius=1.0, segments=48, rings=24):
+    mesh = bpy.data.meshes.new(name)
+    bm = bmesh.new()
+    try:
+        bmesh.ops.create_uvsphere(
+            bm, u_segments=segments, v_segments=rings, radius=radius
+        )
+        bm.to_mesh(mesh)
+    finally:
+        bm.free()
+    for polygon in mesh.polygons:
+        polygon.use_smooth = True
+    return mesh
+
+
+def _demo_plane_mesh(name, size=100.0):
+    mesh = bpy.data.meshes.new(name)
+    bm = bmesh.new()
+    try:
+        bmesh.ops.create_grid(bm, x_segments=1, y_segments=1, size=size)
+        bm.to_mesh(mesh)
+    finally:
+        bm.free()
+    return mesh
+
+
+def _link_demo_object(scene, name, data):
+    obj = bpy.data.objects.new(name, data)
+    scene.collection.objects.link(obj)
+    return obj
+
+
+def _aim_at_origin(obj):
+    obj.rotation_euler = (-obj.location).to_track_quat('-Z', 'Y').to_euler()
+
+
+def _populate_demo_scene(scene):
+    """Fill a fresh scene with a playable, self-contained Figure-8 setup."""
+    props = scene.three_body_props
+    # Assigning body.obj below flips the model to CUSTOM. Start there so the
+    # flow is deterministic, then apply the preset explicitly.
+    props.simulation_model = 'CUSTOM'
+    props.setup_body_count = 3
+    props.simulation_scale = 5.0
+    props["_last_simulation_scale"] = 5.0
+    props.frame_start = 1
+    props.frame_end = 250
+    props.use_scene_fps = True
+    # Keep the pre-baked demo clean; users can switch the arrows back on.
+    props.show_velocity_vectors = False
+
+    for name, color in DEMO_BODY_COLORS:
+        mesh = _demo_sphere_mesh(f"{name} Mesh")
+        obj = _link_demo_object(scene, name, mesh)
+        obj.data.materials.append(
+            _demo_material(f"{name} Material", color, emission=0.25)
+        )
+        body = props.bodies.add()
+        body.obj = obj
+        body.mass = 1.0
+        body.initial_location = (0.0, 0.0, 0.0)
+        body.velocity = (0.0, 0.0, 0.0)
+
+    if not apply_preset_to_bodies(props, 'FIGURE_8'):
+        raise RuntimeError("Could not apply the Figure-8 preset.")
+    # The enum is CUSTOM after the assignments above; this re-applies the
+    # preset (idempotent) and makes the sidebar show Figure-8.
+    props.simulation_model = 'FIGURE_8'
+
+    backdrop = _link_demo_object(
+        scene, "Demo Backdrop", _demo_plane_mesh("Demo Backdrop Mesh")
+    )
+    backdrop.location = (0.0, 0.0, -3.0)
+    backdrop.data.materials.append(
+        _demo_material(
+            "Demo Backdrop Material",
+            (0.012, 0.014, 0.022),
+            roughness=0.75,
+        )
+    )
+
+    camera_data = bpy.data.cameras.new("Demo Camera")
+    camera = _link_demo_object(scene, "Demo Camera", camera_data)
+    camera.location = (0.0, -32.0, 18.0)
+    _aim_at_origin(camera)
+    camera.data.lens = 50.0
+    scene.camera = camera
+
+    sun_data = bpy.data.lights.new("Demo Sun", 'SUN')
+    sun_data.energy = 3.0
+    sun_data.angle = 0.15
+    sun_data.color = (1.0, 0.94, 0.86)
+    sun = _link_demo_object(scene, "Demo Sun", sun_data)
+    sun.location = (5.0, -6.0, 12.0)
+    _aim_at_origin(sun)
+
+    fill_data = bpy.data.lights.new("Demo Fill", 'AREA')
+    fill_data.energy = 500.0
+    fill_data.size = 10.0
+    fill_data.color = (0.45, 0.62, 1.0)
+    fill = _link_demo_object(scene, "Demo Fill", fill_data)
+    fill.location = (-8.0, -6.0, 7.0)
+    _aim_at_origin(fill)
+
+    rim_data = bpy.data.lights.new("Demo Rim", 'AREA')
+    rim_data.energy = 350.0
+    rim_data.size = 8.0
+    rim_data.color = (1.0, 0.55, 0.30)
+    rim = _link_demo_object(scene, "Demo Rim", rim_data)
+    rim.location = (8.0, 6.0, 8.0)
+    _aim_at_origin(rim)
+
+    world = bpy.data.worlds.new("Demo World")
+    world.use_nodes = True
+    background = world.node_tree.nodes.get("Background")
+    if background is not None:
+        background.inputs["Color"].default_value = (0.004, 0.006, 0.014, 1.0)
+        background.inputs["Strength"].default_value = 1.0
+    scene.world = world
+
+    scene.render.engine = 'BLENDER_EEVEE'
+    scene.render.fps = 24
+    scene.render.resolution_x = 1920
+    scene.render.resolution_y = 1080
+    scene.render.resolution_percentage = 100
+    scene.frame_start = 1
+    scene.frame_end = 250
+
+
+class THREEBODY_OT_create_demo_scene(bpy.types.Operator):
+    """Create and open a ready-to-play Three Body Demo scene"""
+
+    bl_idname = "three_body.create_demo_scene"
+    bl_label = "Create Demo Scene"
+    # Creating and switching scenes is not reliably undoable; register without
+    # UNDO so the scene selector cannot be left in a half-reverted state.
+    bl_options = {'REGISTER'}
+
+    @classmethod
+    def poll(cls, context):
+        # A modal bake is bound to the active scene; do not switch scenes mid-bake.
+        return not context.scene.three_body_props.is_baking
+
+    def execute(self, context):
+        window = context.window
+        if window is None:
+            self.report(
+                {'ERROR'},
+                "A window is required to create the demo scene.",
+            )
+            return {'CANCELLED'}
+
+        existing = bpy.data.scenes.get(DEMO_SCENE_NAME)
+        if existing is not None:
+            window.scene = existing
+            self.report({'INFO'}, "Switched to the existing Three Body Demo scene.")
+            return {'FINISHED'}
+
+        original = context.scene
+        demo = bpy.data.scenes.new(DEMO_SCENE_NAME)
+        window.scene = demo
+        try:
+            _populate_demo_scene(demo)
+            _, _, status, error = bake.bake_sync(bpy.context)
+            if status != "COMPLETED":
+                raise RuntimeError(error or f"Demo bake {status.lower()}.")
+        except Exception as exc:  # noqa: BLE001 - report instead of breaking the UI
+            window.scene = original
+            for obj in list(demo.objects):
+                bpy.data.objects.remove(obj, do_unlink=True)
+            bpy.data.scenes.remove(demo)
+            self.report({'ERROR'}, f"Could not create the demo scene: {exc}")
+            return {'CANCELLED'}
+
+        demo.frame_set(1)
+        self.report(
+            {'INFO'},
+            "Created the Three Body Demo scene. Press Play to watch it.",
+        )
+        return {'FINISHED'}
+
+
 class THREEBODY_OT_setup_objects(bpy.types.Operator):
     """Create UV spheres and assign them to the simulation slots, clearing existing ones first"""
     bl_idname = "three_body.setup_objects"
@@ -124,6 +418,7 @@ class THREEBODY_OT_setup_objects(bpy.types.Operator):
 
     def execute(self, context):
         props = context.scene.three_body_props
+        requested_model = props.simulation_model
 
         # 不要な削除を避け、リストをクリアするだけに留める
         # (ユーザーが配置したオブジェクトを破壊しないため)
@@ -155,7 +450,20 @@ class THREEBODY_OT_setup_objects(bpy.types.Operator):
             body_prop.initial_location = obj.location
             body_prop.velocity = vel
 
-        self.report({'INFO'}, f"Reset and created {count} spheres.")
+        message = f"Reset and created {count} spheres."
+        if requested_model != 'CUSTOM':
+            if count == 3:
+                # Assigning body.obj above switches the model to CUSTOM, so
+                # this assignment runs update_preset_values and applies the
+                # preset that was selected before pressing Setup.
+                props.simulation_model = requested_model
+                message += f" Applied preset: {props.simulation_model}."
+            else:
+                self.report(
+                    {'WARNING'},
+                    "Preset not applied: presets require exactly 3 bodies.",
+                )
+        self.report({'INFO'}, message)
         return {'FINISHED'}
 
 
@@ -274,6 +582,9 @@ def register():
     classes = (
         THREEBODY_OT_bake_simulation,
         THREEBODY_OT_unbake_simulation,
+        THREEBODY_OT_apply_preset,
+        THREEBODY_OT_reset_settings,
+        THREEBODY_OT_create_demo_scene,
         THREEBODY_OT_setup_objects,
         THREEBODY_OT_capture_locations,
         THREEBODY_OT_apply_locations,
@@ -291,6 +602,9 @@ def unregister():
         THREEBODY_OT_apply_locations,
         THREEBODY_OT_capture_locations,
         THREEBODY_OT_setup_objects,
+        THREEBODY_OT_create_demo_scene,
+        THREEBODY_OT_apply_preset,
+        THREEBODY_OT_reset_settings,
         THREEBODY_OT_unbake_simulation,
         THREEBODY_OT_bake_simulation,
         THREEBODY_OT_sync_collection,

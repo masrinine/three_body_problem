@@ -105,29 +105,50 @@ and no lost animation.
     moving the objects; four bodies render four arrows; the `Viewport Display` panel draws and
     stays enabled while baked; the Blender console shows no GPU/shader warnings.
 
-- [ ] **11. First-run UX and demo content** — **next task (start with 11a)**
+- [x] **11. First-run UX and demo content** — complete
   - Verified problem (5.2.2): a fresh file reports `simulation_model = FIGURE_8` with 0 bodies,
     and `Auto Setup` creates a collinear row at ±5 m with velocities of ±0.1 while flipping the
     model to `CUSTOM` (assigning `BodyProperties.obj` triggers `update_custom_on_edit`). The
     preset the UI advertises is never applied, and there is no way to re-apply one.
-  - **11a — Apply Preset and a sane Auto Setup (do first)**
-    - Add `three_body.apply_preset` (`{'REGISTER','UNDO'}`) and an `Apply Preset` button under
-      `Preset Model`. Apply `presets.PRESETS[model]` directly: the enum callback
-      `update_preset_values` early-returns on `CUSTOM` and creates empty slots, so it cannot be
-      reused as-is. Apply inside `_updating_from_preset` and sync `_last_simulation_scale`.
-    - `Auto Setup` applies the selected preset when it was a preset before setup and
-      `setup_body_count == 3`; keep the generated row when the model was `CUSTOM`.
-    - Refuse while baked/baking, with N ≠ 3, or with a missing object; report the reason.
-    - Keep the scale contract: positions/velocities × S and `G = G_base · S³`.
-  - **11b — one-click demo scene**
-    - `three_body.create_demo_scene` creates `Three Body Demo` in a new scene (the current scene
-      stays untouched): Figure-8, 3 shaded spheres, framed camera, key/fill lights, backdrop,
-      250 frames at 24 fps, motion paths on, and optionally pre-baked so Play works immediately.
-      Switch to it; reuse an existing demo scene instead of duplicating it.
-  - **11c — reset and copy polish**
-    - `three_body.reset_settings` (confirm dialog) restores `Scene.three_body_props` defaults
-      without deleting objects or silently reapplying a preset; short tooltips/hints; update
-      README and `COMPATIBILITY.md`.
+  - [x] **11a — Apply Preset and a sane Auto Setup**
+    - Added `properties.apply_preset_to_bodies` / `_write_preset_to_bodies` (shared with the enum
+      callback, never creates empty slots), `three_body.apply_preset` (poll requires a selected
+      preset, exactly 3 assigned bodies, and not baked/baking), and an `Apply Preset` button in
+      the presets panel.
+    - `setup_objects` now remembers the model from before setup and re-applies the selected
+      preset when it created exactly 3 bodies; a 4+ body setup stays `CUSTOM` with a warning.
+    - Verified on 5.2.2: 4 new headless tests (auto setup applies the preset; re-selecting after
+      an edit; the operator restores a drifted preset; refusals for CUSTOM/baked/missing
+      object/N!=3), 15 headless Blender tests total, 12 physics tests, build + extension validate.
+      GUI: `Auto Setup` leaves Figure-8 applied with the `Apply Preset` button
+      (`tests/output/gui_check_11a/`, gitignored).
+  - [x] **11b — one-click demo scene**
+    - `three_body.create_demo_scene` creates `Three Body Demo` in a new scene (the original scene
+      stays untouched): Figure-8, 3 shaded spheres, framed camera, sun/fill/rim lights, dark
+      backdrop and world, 1920x1080 EEVEE, 250 frames at 24 fps, and a pre-baked Figure-8 so
+      Play works immediately. A second invocation switches to the existing demo without
+      duplicating it.
+    - The `Create Demo Scene` button lives in the main panel and stays enabled while baked. The
+      demo starts with velocity arrows hidden so the render stays clean; the scene camera is
+      ready for Numpad 0 / F12.
+    - Verified on 5.2.2: `test_demo_scene_created_once` (baked, 3 bodies, camera/lights/backdrop,
+      250 frames, 24 fps, moving timeline, idempotent second click, original scene unchanged),
+      16 headless tests total, 12 physics tests, build + validate, and a camera-view render at
+      frame 60 (`tests/output/gui_check_11b/`, gitignored).
+  - [x] **11c — reset and copy polish**
+    - `three_body.reset_settings` shows a confirmation dialog and restores the simulation/display
+      settings to their RNA defaults without deleting objects or silently reapplying a preset.
+      Body slots, assigned objects, and `simulation_model` are kept; `simulation_scale` still
+      rescales stored positions/velocities so the system shape is preserved. The reset also
+      clears `energy_drift` and `last_simulation_report`, and is refused (with a clear message)
+      while baking or baked. The main-panel button is disabled in those states.
+    - `Reset Settings` lives in the main panel. README quick start now points to
+      Auto Setup → preset check → Bake, documents the demo, and the reset behavior;
+      `COMPATIBILITY.md` has a first-run release-checklist item.
+    - Verified on 5.2.2: `test_reset_settings` (all settings, body/model preservation, scale,
+      baked/baking refusal), 17 headless tests, 12 physics tests, build + validate, and GUI
+      screenshots of the dialog and the post-reset panels (`tests/output/gui_check_11c/`,
+      gitignored).
   - Acceptance: fresh file → Auto Setup → Figure-8 is applied and the enum stays `FIGURE_8`;
     re-selecting a preset after an edit reapplies it; Apply is refused with a clear message in
     the invalid states; the demo scene is one click, non-destructive, and idempotent; the scale

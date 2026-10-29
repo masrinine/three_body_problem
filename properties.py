@@ -96,6 +96,90 @@ def apply_body_preset(body_prop, mass, location, velocity):
     if body_prop.obj:
         body_prop.obj.location = location
 
+
+def _write_preset_to_bodies(props, preset):
+    """Write a preset into the first three body slots (slots must exist)."""
+    scale = props.simulation_scale
+    # Prevent the body property callbacks from switching the model to CUSTOM.
+    props["_updating_from_preset"] = True
+    try:
+        for i in range(3):
+            apply_body_preset(
+                props.bodies[i],
+                preset.masses[i],
+                preset.positions[i] * scale,
+                preset.velocities[i] * scale,
+            )
+        props["_last_simulation_scale"] = scale
+    finally:
+        props["_updating_from_preset"] = False
+
+
+def apply_preset_to_bodies(props, model) -> bool:
+    """Apply ``model`` to the three bodies already assigned to the scene.
+
+    Unlike the enum update callback this never creates empty body slots, so an
+    operator can call it after validating the scene. Returns False when the
+    model is not a preset or the three bodies are not ready.
+    """
+    from . import presets
+
+    preset = presets.PRESETS.get(model)
+    if preset is None or len(props.bodies) != 3:
+        return False
+    if any(not is_valid_obj(body.obj) for body in props.bodies):
+        return False
+
+    _write_preset_to_bodies(props, preset)
+    return True
+
+
+# Settings restored by ``three_body.reset_settings``. Bodies and
+# ``simulation_model`` are deliberately absent: assigning the preset enum would
+# reapply a preset and discard the user's body edits.
+RESETTABLE_SETTINGS = (
+    "setup_body_count",
+    "frame_start",
+    "frame_end",
+    "use_scene_fps",
+    "fps_override",
+    "time_scale",
+    "softening_multiplier",
+    "simulation_scale",
+    "use_collision",
+    "auto_collision_radius",
+    "manual_collision_radius",
+    "radius_offset",
+    "gravity_strength",
+    "integrator_type",
+    "bake_limit_seconds",
+    "max_velocity_safety",
+    "use_compact_list",
+    "show_velocity_vectors",
+    "velocity_gizmo_scale",
+    "show_report",
+)
+
+
+def reset_simulation_settings(props) -> None:
+    """Restore simulation/display settings to their RNA defaults.
+
+    ``simulation_scale`` keeps its update callback, which rescales the stored
+    body positions and velocities so the system's shape is preserved. The body
+    slots, their assigned objects, and ``simulation_model`` are left untouched.
+    """
+    for name in RESETTABLE_SETTINGS:
+        rna_property = props.bl_rna.properties.get(name)
+        if rna_property is not None and hasattr(rna_property, "default"):
+            setattr(props, name, rna_property.default)
+
+    props.energy_drift = 0.0
+    props.last_simulation_report = ""
+    # Keep the scale contract in sync even when the scale was already at its
+    # default and the update callback therefore did not fire.
+    props["_last_simulation_scale"] = props.simulation_scale
+
+
 class BodyProperties(bpy.types.PropertyGroup):
     obj: bpy.props.PointerProperty(
         name="Object",
@@ -140,32 +224,19 @@ def update_preset_values(self, context):
     """When preset is changed, apply its values to the body properties"""
     if self.simulation_model == 'CUSTOM':
         return
-        
+
     from . import presets
     p = presets.PRESETS.get(self.simulation_model)
     if not p:
         return
-        
-    # Prevent the update callbacks from switching back to CUSTOM
-    self["_updating_from_preset"] = True
-    
-    try:
-        # Scale constants
-        S = self.simulation_scale
-        
-        # Ensure we have at least 3 bodies for the preset
-        while len(self.bodies) < 3:
-            self.bodies.add()
-            
-        for i in range(3):
-            body = self.bodies[i]
-            apply_body_preset(body, p.masses[i], p.positions[i] * S, p.velocities[i] * S)
 
-        self["_last_simulation_scale"] = S
-        # If there are more than 3 bodies, we don't necessarily remove them 
-        # but the preset only applies to the first 3.
-    finally:
-        self["_updating_from_preset"] = False
+    # Ensure we have at least 3 bodies for the preset. Empty slots are allowed
+    # here; the user can assign objects to them afterwards.
+    while len(self.bodies) < 3:
+        self.bodies.add()
+
+    _write_preset_to_bodies(self, p)
+    # If there are more than 3 bodies, the preset still applies to the first 3.
 
 class ThreeBodyProperties(bpy.types.PropertyGroup):
     use_compact_list: bpy.props.BoolProperty(

@@ -22,6 +22,20 @@ class VIEW3D_PT_three_body_main(bpy.types.Panel):
         bake_row.operator("three_body.bake_simulation", icon='PLAY', text="Bake All")
         col.operator("three_body.unbake_simulation", icon='X', text="Unbake All")
 
+        layout.separator()
+        layout.operator(
+            "three_body.create_demo_scene",
+            icon='SCENE_DATA',
+            text="Create Demo Scene",
+        )
+        reset_row = layout.row()
+        reset_row.enabled = not props.is_baking and not props.is_baked
+        reset_row.operator(
+            "three_body.reset_settings",
+            icon='FILE_REFRESH',
+            text="Reset Settings",
+        )
+
         if props.is_baking:
             layout.label(text="Baking in progress...", icon='TIME')
         
@@ -164,6 +178,7 @@ class VIEW3D_PT_three_body_presets(bpy.types.Panel):
             layout.enabled = False
         
         layout.prop(props, "simulation_model")
+        layout.operator("three_body.apply_preset", icon='FILE_REFRESH')
         
 class VIEW3D_PT_three_body_settings(bpy.types.Panel):
     bl_parent_id = "VIEW3D_PT_three_body_main"

@@ -68,6 +68,12 @@ are Japanese.
   and softening `· S`. `properties.update_simulation_scale` rescales stored positions and
   velocities by `new_S/old_S` when `S` changes. Do not change one without the others, and keep
   `_last_simulation_scale` in sync (`update_preset_values`, `register`, `cleanup_on_load`).
+- **Reset must not touch `bodies` or `simulation_model`.** `three_body.reset_settings` restores
+  the names in `properties.RESETTABLE_SETTINGS` from their RNA defaults. Assigning the preset
+  enum would reapply a preset and discard edits; resetting `simulation_scale` intentionally
+  reuses its callback to rescale stored positions/velocities, then sets
+  `_last_simulation_scale`. The operator is refused while baking/baked; the panel disables the
+  button, but scripts still reach the explicit error report.
 - **Collision radii are world-space radii** (not diameters), computed from
   `matrix_world.to_3x3()` so rotation/scale/parents are included; modifiers are ignored,
   `Radius Offset` is added at full strength, and there is no hidden `S` multiplication. This is
@@ -88,7 +94,11 @@ are Japanese.
 - `properties.py` — all persistent state hangs off `Scene.three_body_props`; `bodies` is a
   collection of `BodyProperties`. Editing mass/location/velocity switches `simulation_model` to
   `CUSTOM` via `update_custom_on_edit`; preset application uses `_updating_from_preset` to
-  suppress that, and `update_simulation_scale` rescales stored state.
+  suppress that, and `update_simulation_scale` rescales stored state. The enum callback goes
+  through `_write_preset_to_bodies` (may create empty slots); operator code must use
+  `apply_preset_to_bodies`, which requires exactly 3 assigned bodies and never adds slots.
+  `RESETTABLE_SETTINGS` / `reset_simulation_settings` back the reset operator and deliberately
+  exclude `bodies` and `simulation_model`.
 - `presets.py` — 9 `ThreeBodyPreset` entries. Pure data + numpy; carries `G`, `softening`, and
   `steps_per_frame`.
 - `algo.py` — pure numpy physics plus the bpy-free core `simulate_frames`/`advance_frame`.
@@ -98,10 +108,16 @@ are Japanese.
   `apply_frame`, `finalize`, and `bake_sync` for headless use.
 - `keyframes.py` — slotted-action F-curve helpers (iterate, remove location keys, set
   interpolation).
-- `operators.py` — modal bake (4 frames/tick, ESC cancel), unbake, setup spheres, capture/apply
-  locations, sync collection. `add_body` / `remove_body` live in `panels.py`, not here.
-- `panels.py` — sidebar UI, including the `is_baked`/`is_baking` locks and the
-  `Viewport Display` sub-panel, which is never locked because it only affects drawing.
+- `operators.py` — modal bake (4 frames/tick, ESC cancel), unbake, apply preset, reset settings,
+  create the pre-baked demo scene, setup spheres, capture/apply locations, sync collection.
+  `setup_objects` re-applies the selected preset when it creates exactly 3 bodies.
+  `create_demo_scene` builds its own `Three Body Demo` scene with `bmesh` + direct scene linking
+  and pre-bakes it. `reset_settings` uses `invoke_props_dialog` for confirmation and is refused
+  while baking/baked. `add_body` / `remove_body` live in `panels.py`, not here.
+- `panels.py` — sidebar UI, including the `is_baked`/`is_baking` locks, the main-panel
+  Bake/Unbake, Create Demo Scene, and Reset Settings buttons, and the `Viewport Display`
+  sub-panel, which is never locked because it only affects drawing. Reset is wrapped in a row
+  disabled while baking/baked even though the operator poll stays script-callable.
 - `handlers.py` — depsgraph location sync (start frame only), `is_baking` reset and
   `_last_simulation_scale` init on file load.
 - Presets require exactly 3 bodies; `bake.build_context` enforces it. Custom systems accept any
